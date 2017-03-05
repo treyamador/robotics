@@ -8,9 +8,11 @@
 
 
 namespace {
-	const std::string ENVIRONMENT = "hospital_copy.pnm";
-	const int ADJ = 3;
+	const std::string ENVIRONMENT = "hospital_section.pnm";
+	const std::string OUTPUT_FILEPATH = "output_wavefront.pnm";
 	const int DIRECTIONS = 8;
+	const int ADJ = 3;
+	const int COLOR_FACTOR = 200;
 };
 
 
@@ -43,7 +45,7 @@ public:
 	Map();
 	~Map();
 	
-	bool wavefront(
+	int wavefront(
 		Point2D& pos,
 		Point2D& destination);
 	
@@ -65,8 +67,12 @@ public:
 	PointXY cast_point(Point2D& point);
 	void clear_perimeter(PointXY*& perimeter);
 	
+	void read(const std::string& filepath);
 	void read_txt(const std::string& filepath);
-	void print_wavefront();
+	void output_wavefront(
+		const std::string& filepath,
+		const std::string& output_path,
+		int gradient);
 	
 	
 private:
@@ -84,6 +90,48 @@ Map::Map() {
 
 Map::~Map() {
 	
+}
+
+
+void Map::read(const std::string& filepath) {
+	std::string line, header;
+	std::ifstream in_file(filepath);
+	std::getline(in_file,header);
+	int width,height,max_val;
+	in_file >> width >> height >> max_val;
+	std::cout << header << std::endl;
+	while (std::getline(in_file,line)) {
+		map_= std::vector<std::vector<double> >(
+			height,std::vector<double>(width));
+		wave_ = std::vector<std::vector<int> >(
+			height,std::vector<int>(width,0));
+		for (size_t i = 0; i < line.size(); ++i)
+			map_[i/width][i%width] = static_cast<double>(line[i]+1);
+	}
+}
+
+
+void Map::output_wavefront(
+	const std::string& filepath,
+	const std::string& output_path,
+	int gradient)
+{
+
+	std::string line, header;
+	std::ifstream in_file(filepath);
+	std::getline(in_file,header);
+	int width,height,max_val;
+	in_file >> width >> height >> max_val;
+
+	float max_grd = static_cast<float>(gradient);
+	std::ofstream out_file(output_path);
+	out_file << header << std::endl;
+	out_file << width << " " << height << " " << max_val << std::endl;
+	for (size_t r = 0; r < wave_.size(); ++r)
+		for (size_t c = 0; c < wave_[r].size(); ++c)
+			out_file << (map_[r][c] == 1 || wave_[r][c] == 0 ? 
+				static_cast<char>(map_[r][c]-1) : 
+				static_cast<char>(wave_[r][c]*COLOR_FACTOR/max_grd));
 }
 
 
@@ -147,7 +195,7 @@ bool Map::goal_unreachable(int perimeter_size) {
 }
 
 
-bool Map::wavefront(Point2D& player, Point2D& destination) {
+int Map::wavefront(Point2D& player, Point2D& destination) {
 	int gradient = 1, size = 1;
 	PointXY dest = this->cast_point(destination),
 			plyr = this->cast_point(player);
@@ -159,10 +207,10 @@ bool Map::wavefront(Point2D& player, Point2D& destination) {
 		PointXY* frontier = this->propagate_wave(
 			perim,size,++gradient);
 		if (this->goal_unreachable(perim_s))
-			return false;
+			return -1;
 		this->swap_waves(perim,frontier,size);
 	}
-	return true;
+	return gradient;
 }
 
 
@@ -181,30 +229,13 @@ void Map::clear_perimeter(PointXY*& perimeter) {
 }
 
 
-void Map::print_wavefront() {
-	for (size_t r = 0; r < wave_.size(); ++r) {
-		for (size_t c = 0; c < wave_[r].size(); ++c) {
-			std::cout << std::setw(3) << std::right << 
-				(map_[r][c] == 1 ? map_[r][c] : wave_[r][c]);
-		}
-		std::cout << "\n";
-	}
-	std::cout << std::endl;
-}
-
-
 int main(int argc, char* argv[]) {	
-	Point2D dest = Point2D(28.0,12.0);
-	Point2D player = Point2D(66.0,3.0);
-	//Point2D player = Point2D(13.0,7.0);
+	Point2D dest = Point2D(700.0,400.0);
+	Point2D player = Point2D(50.0,50.0);
 	Map map;
-	map.read_txt("map2.txt");
-	bool success = map.wavefront(player,dest);
-	map.print_wavefront();
-	if (success)
-		std::cout << "\n\n\nSUCCESS\n\n\n" << std::endl;
-	else
-		std::cout << "\n\n\nEXIT WITH ERROR\n\n\n" << std::endl;
+	map.read(ENVIRONMENT);
+	int gradient = map.wavefront(player,dest);
+	map.output_wavefront(ENVIRONMENT,OUTPUT_FILEPATH,gradient);
 	return 0;
 }
 
