@@ -10,6 +10,7 @@
 namespace {
 	const std::string ENVIRONMENT = "hospital_copy.pnm";
 	const int ADJ = 3;
+	const int DIRECTIONS = 8;
 };
 
 
@@ -23,6 +24,9 @@ struct Point2D {
 
 
 struct PointXY {
+	PointXY() :
+		x_(0),y_(0)
+	{}
 	PointXY(int x, int y) :
 		x_(x),y_(y)
 	{}
@@ -39,36 +43,36 @@ public:
 	Map();
 	~Map();
 	
+	bool wavefront(
+		Point2D& pos,
+		Point2D& destination);
+	
+	PointXY* propagate_wave(
+		PointXY*& perimeter,
+		int& size,
+		int gradient);
+	void swap_waves(
+		PointXY*& perimeter,
+		PointXY*& frontier,
+		int size);
+		
+	bool goal_reached(
+		PointXY*& perimeter,
+		int size,
+		PointXY& goal);
+	bool goal_unreachable(int perimeter_size);
+	
+	PointXY cast_point(Point2D& point);
+	void clear_perimeter(PointXY*& perimeter);
+	
 	void read_txt(const std::string& filepath);
 	void print_wavefront();
 	
-	void wavefront(Point2D& pos, Point2D& destination);
-	void propagate_wave(
-		std::vector<PointXY>& perimeter,
-		std::vector<PointXY>& frontier);
-	void fill_gradient(
-		std::vector<PointXY>& frontier,
-		int gradient);
-	void replace_perimeter(
-		std::vector<PointXY>& perimeter,
-		std::vector<PointXY>& frontier);
-	
-	bool frontier_completed(
-		std::vector<PointXY>& frontier, 
-		bool completed);
-	
-	bool goal_reached(
-		std::vector<PointXY>& perim,
-		PointXY& goal);
-	
-	void clear_points(std::vector<PointXY>& perim);
 	
 private:
 	std::vector<std::vector<double> > map_;
 	std::vector<std::vector<int> > wave_;
 	
-	std::vector<PointXY> perimeter_;
-	std::vector<PointXY> frontier_;
 	
 };
 
@@ -96,84 +100,83 @@ void Map::read_txt(const std::string& filepath) {
 }
 
 
-void Map::clear_points(std::vector<PointXY>& perim) {
-	perim.clear();
-	perim.shrink_to_fit();
-}
-
-
-void Map::propagate_wave(
-	std::vector<PointXY>& perim,
-	std::vector<PointXY>& frontier)
+PointXY* Map::propagate_wave(
+	PointXY*& perimeter,
+	int& size,
+	int gradient)
 {
-	for (pIter p = perim.begin(); p != perim.end(); ++p) {
+	int iter = 0;
+	PointXY* frontier = new PointXY[DIRECTIONS*size];
+	for (int p = 0; p < size; ++p) {
 		for (int i = 0; i < ADJ*ADJ; ++i) {
-			int r = (p->y_-1)+i/ADJ,
-				c = (p->x_-1)+i%ADJ;
+			int r = (perimeter[p].y_-1)+i/ADJ,
+				c = (perimeter[p].x_-1)+i%ADJ;
 			if (map_[r][c] == 0 && wave_[r][c] == 0) {
-				frontier.push_back(PointXY(c,r));
+				frontier[iter++] = PointXY(c,r);
+				wave_[r][c] = gradient;
 			}
 		}
 	}
+	size = iter;
+	return frontier;
 }
 
 
-void Map::fill_gradient(
-	std::vector<PointXY>& frnt,
-	int gradient)
-{
-	for (pIter p = frnt.begin(); p != frnt.end(); ++p)
-		wave_[p->y_][p->x_] = gradient;
+void Map::swap_waves(PointXY*& perimeter, PointXY*& frontier, int size) {
+	this->clear_perimeter(perimeter);
+	perimeter = new PointXY[size];
+	for (int i = 0; i < size; ++i)
+		perimeter[i] = frontier[i];
+	this->clear_perimeter(frontier);
 }
 
 
-void Map::replace_perimeter(
-	std::vector<PointXY>& perim,
-	std::vector<PointXY>& frontier)
-{
-	this->clear_points(perim);
-	for (size_t i = 0; i < frontier.size(); ++i)
-		perim.push_back(frontier[i]);
-}
 
-bool Map::frontier_completed(
-	std::vector<PointXY>& frontier, 
-	bool completed)
-{
-	return frontier.empty() || completed;
-}
-
-
-bool Map::goal_reached(
-	std::vector<PointXY>& perim,
-	PointXY& goal)
-{
-	for (pIter p = perim.begin(); p != perim.end(); ++p)
-		if (p->x_ == goal.x_ && p->y_ == goal.y_)
+bool Map::goal_reached(PointXY*& perimeter, int size, PointXY& goal) {
+	for (int i = 0; i < size; ++i)
+		if (perimeter[i].x_ == goal.x_ && perimeter[i].y_ == goal.y_)
 			return true;
 	return false;
 }
 
 
-void Map::wavefront(Point2D& player, Point2D& destination) {
-	int gradient = 1;
-	PointXY dest = PointXY(
-		static_cast<int>(destination.x_),
-		static_cast<int>(destination.y_));
-	PointXY plyr = PointXY(
-		static_cast<int>(player.x_),
-		static_cast<int>(player.y_));
+bool Map::goal_unreachable(int perimeter_size) {
+	if (perimeter_size == 0)
+		return true;
+	return false;
+}
+
+
+bool Map::wavefront(Point2D& player, Point2D& destination) {
+	int gradient = 1, size = 1;
+	PointXY dest = this->cast_point(destination),
+			plyr = this->cast_point(player);
 	this->wave_[dest.y_][dest.x_] = gradient;
-	std::vector<PointXY> perimeter = { dest };
-	while (!this->goal_reached(perimeter,plyr)) {
-		++gradient;
-		//std::vector<PointXY> frontier;
-		this->clear_points(frontier_);
-		this->propagate_wave(perimeter_,frontier_);
-		this->fill_gradient(frontier_,gradient);
-		this->replace_perimeter(perimeter_,frontier_);
-		this->print_wavefront();
-		// check if frontier is empty and goal unreached
+	PointXY* perim = new PointXY[size];
+	perim[size-1] = PointXY(dest.x_,dest.y_);
+	while (!this->goal_reached(perim,size,plyr)) {
+		int perim_s = size;
+		PointXY* frontier = this->propagate_wave(
+			perim,size,++gradient);
+		if (this->goal_unreachable(perim_s))
+			return false;
+		this->swap_waves(perim,frontier,size);
+	}
+	return true;
+}
+
+
+PointXY Map::cast_point(Point2D& point) {
+	return PointXY(
+		static_cast<int>(point.x_),
+		static_cast<int>(point.y_));
+}
+
+
+void Map::clear_perimeter(PointXY*& perimeter) {
+	if (perimeter != nullptr) {
+		delete [] perimeter;
+		perimeter = nullptr;
 	}
 }
 
@@ -192,14 +195,16 @@ void Map::print_wavefront() {
 
 int main(int argc, char* argv[]) {	
 	Point2D dest = Point2D(28.0,12.0);
-	Point2D player = Point2D(8.0,6.0);
+	Point2D player = Point2D(66.0,3.0);
+	//Point2D player = Point2D(13.0,7.0);
 	Map map;
 	map.read_txt("map2.txt");
-	map.wavefront(player,dest);
+	bool success = map.wavefront(player,dest);
 	map.print_wavefront();
-	
-	std::cout << "\n\nCompleted\n\n" << std::endl;
-	
+	if (success)
+		std::cout << "\n\n\nSUCCESS\n\n\n" << std::endl;
+	else
+		std::cout << "\n\n\nEXIT WITH ERROR\n\n\n" << std::endl;
 	return 0;
 }
 
