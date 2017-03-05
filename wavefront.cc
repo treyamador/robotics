@@ -44,16 +44,7 @@ public:
 	Map();
 	~Map();
 	
-	void read(const std::string& filepath);
 	void wavefront(Point2D& pos, Point2D& destination);
-	void print_wavefront();
-	void print_map();
-	
-	void output_wavefront(const std::string& filepath);
-	void read_txt(const std::string& filepath);
-	
-	bool destination(PointXY& wf,Point2D& pos, bool cmplt);
-	bool frontier_completed(PointXY& wave, PointXY& end);
 	
 	std::vector<PointXY> create_compass(
 		PointXY& wf,
@@ -67,8 +58,19 @@ public:
 	PointXY follow_wall(
 		std::vector<PointXY>& adj,
 		PointXY& prev);
-	bool wall_adjacent(PointXY& pos);
 	
+	bool wall_adjacent(PointXY& pos);
+	bool destination(PointXY& wf,Point2D& pos, bool cmplt);
+	bool frontier_completed(PointXY& wave, PointXY& end);
+	
+	void read(const std::string& filepath);
+	void read_txt(const std::string& filepath);
+	
+	void output_wavefront(const std::string& filepath);
+	//void output_txt(const std::string& filepath);
+	void print_wavefront();
+	void print_map();
+
 
 private:
 	std::vector<std::vector<int> > wavefront_;
@@ -110,6 +112,20 @@ void Map::read(const std::string& filepath) {
 }
 
 
+void Map::read_txt(const std::string& filepath) {
+	std::ifstream in_file(filepath); 
+	std::string line;
+	while (std::getline(in_file,line)) {
+		map_.push_back(std::vector<double>(line.size()));
+		wavefront_.push_back(std::vector<int>(line.size(),0));
+		for (size_t i = 0; i < map_.back().size(); ++i) {
+			map_.back()[i] = line[i]-'0';
+		}
+	}
+	
+}
+
+
 void Map::output_wavefront(const std::string& filepath) {
 	std::string line, header;
 	std::ifstream in_file(filepath);
@@ -130,27 +146,27 @@ std::vector<PointXY> Map::create_compass(PointXY& wf, PointXY& prev) {
 	PointXY dspl = PointXY(prev.x_-wf.x_,prev.y_-wf.y_);
 	if (dspl.x_ == 0 && dspl.y_ == 1)
 		compass = {
-			PointXY(wf.x_+1,wf.y_-1),
-			PointXY(wf.x_,wf.y_-2),
-			PointXY(wf.x_-1,wf.y_-1) 
+			PointXY(wf.x_+1,wf.y_),
+			PointXY(wf.x_,wf.y_-1),
+			PointXY(wf.x_-1,wf.y_) 
 		};
 	else if (dspl.x_ == -1 && dspl.y_ == 0)
 		compass = {
-			PointXY(wf.x_+1,wf.y_+1),
-			PointXY(wf.x_+2,wf.y_),
-			PointXY(wf.x_+1,wf.y_-1) 
+			PointXY(wf.x_,wf.y_+1),
+			PointXY(wf.x_+1,wf.y_),
+			PointXY(wf.x_,wf.y_-1) 
 		};
 	else if (dspl.x_ == 0 && dspl.y_ == -1)
 		compass = {
-			PointXY(wf.x_-1,wf.y_+1),
-			PointXY(wf.x_,wf.y_+2),
-			PointXY(wf.x_+1,wf.y_+1) 
+			PointXY(wf.x_-1,wf.y_),
+			PointXY(wf.x_,wf.y_+1),
+			PointXY(wf.x_+1,wf.y_) 
 		};
 	else if (dspl.x_ == 1 && dspl.y_ == 0)
 		compass = {
-			PointXY(wf.x_-1,wf.y_-1),
-			PointXY(wf.x_-2,wf.y_),
-			PointXY(wf.x_-1,wf.y_+1) 
+			PointXY(wf.x_,wf.y_-1),
+			PointXY(wf.x_-1,wf.y_),
+			PointXY(wf.x_,wf.y_+1) 
 		};
 	else
 		compass = {
@@ -189,10 +205,10 @@ PointXY Map::follow_wall(
 
 bool Map::wall_adjacent(PointXY& pos) {
 	int V = 3;
-	for (int i = 1; i < V*V; i += 2) {
+	for (int i = 0; i < V*V; ++i) {
 		int r = (pos.y_-1)+i/V,
 			c = (pos.x_-1)+i%V;
-		if (map_[r][c] == 1)
+		if (map_[r][c] == 1 && i != V*V/2)
 			return true;
 	}
 	return false;
@@ -225,12 +241,16 @@ void Map::wavefront(Point2D& player, Point2D& dest) {
 	while (!completed) {
 		++gradient;
 		int init_y = dest_y;
-		while (wavefront_[init_y][dest_x] > 0)
+		// revise this while loop?
+		while (wavefront_[init_y][dest_x] != 0 &&
+			map_[init_y-1][dest_x] != 1)
 			--init_y;
+		//std::cout << dest_x << " " << init_y << std::endl;
 		PointXY wf = PointXY(dest_x,init_y),
 				prev = PointXY(dest_x,init_y+1),
 				end_wave = PointXY(dest_x,init_y);
 		do {
+			std::cout << "\n\n" << wf.x_ << " " << wf.y_ << "\n\n";
 			std::vector<PointXY> compass = 
 				this->create_compass(wf,prev);
 			PointXY mvmt = this->assess_movement(compass,prev);
@@ -240,8 +260,8 @@ void Map::wavefront(Point2D& player, Point2D& dest) {
 				map_[wf.y_][wf.x_] == 0)
 				wavefront_[wf.y_][wf.x_] = gradient;
 			completed = this->destination(wf,player,completed);
+			this->print_wavefront();
 		} while (!this->frontier_completed(wf,end_wave));
-		this->output_wavefront(ENVIRONMENT);
 	}
 }
 
@@ -286,14 +306,50 @@ bool Map::frontier_completed(PointXY& wave, PointXY& end) {
 
 
 int main(int argc, char* argv[]) {
-	Point2D dest = Point2D(500.0,200.0);
-	Point2D player = Point2D(100.0,100.0);
+	
+	//Point2D dest = Point2D(500.0,200.0);
+	//Point2D player = Point2D(100.0,100.0);
+	//Map map;
+	//map.read(ENVIRONMENT);
+	//map.wavefront(player,dest);
+	//std::cout << "\n\nCompleted\n\n" << std::endl;
+	//map.output_wavefront(ENVIRONMENT);
+	//return 0;
+	
+	
+	//Map map;
+	//map.read_txt("test.txt");
+	
+	//PointXY wf = PointXY(3,5),
+	//		prev = PointXY(5,4);
+	//std::vector<PointXY> compass = map.create_compass(wf,prev);
+	
+	//std::cout << wf.x_ << " " << wf.y_ << "\n";
+	//std::cout << prev.x_ << " " << prev.y_ << "\n";
+	//for (size_t i = 0; i < compass.size(); ++i)
+	//	std::cout << compass[i].x_ << " " << compass[i].y_ << "\n";
+	
+	//if (map.wall_adjacent(wf))
+	//	std::cout << "wall adjacent\n";
+	//else
+	//	std::cout << "not adjacent\n";
+	
+	
+	Point2D dest = Point2D(13.0,8.0);
+	Point2D player = Point2D(8.0,6.0);
 	Map map;
-	map.read(ENVIRONMENT);
+	map.read_txt("test.txt");
 	map.wavefront(player,dest);
-	std::cout << "\n\nCompleted\n\n" << std::endl;
-	map.output_wavefront(ENVIRONMENT);
+	//std::cout << "\n\nCompleted\n\n" << std::endl;
+	//map.output_wavefront(ENVIRONMENT);
+	map.print_wavefront();
 	return 0;
+	
+	
+	
+	
 }
+
+
 
 
