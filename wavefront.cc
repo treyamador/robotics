@@ -1,7 +1,9 @@
+#include <algorithm>
 #include <iostream>
 #include <iomanip>
 #include <fstream>
 #include <sstream>
+#include <memory>
 #include <string>
 #include <vector>
 #include <cmath>
@@ -10,6 +12,7 @@
 namespace {
 	
 	const std::string ENVIRONMENT = "hospital_section.pnm";
+	
 	
 };
 
@@ -31,6 +34,9 @@ struct PointXY {
 };
 
 
+typedef std::vector<PointXY>::iterator PointIter;
+
+
 class Map {
 	
 	
@@ -44,20 +50,26 @@ public:
 	void print_map();
 	
 	void output_wavefront(const std::string& filepath);
+	void read_txt(const std::string& filepath);
 	
 	bool destination(PointXY& wf,Point2D& pos, bool cmplt);
 	bool frontier_completed(PointXY& wave, PointXY& end);
-	PointXY adjacent_greatest(PointXY& wf);
 	
-	bool right_open(PointXY& wf, PointXY& adj, int grd);
-	bool up_open(PointXY& wf, PointXY& adj, int grd);
-	bool left_open(PointXY& wf, PointXY& adj, int grd);
+	std::vector<PointXY> create_compass(
+		PointXY& wf,
+		PointXY& prev);
+	PointXY assess_movement(
+		std::vector<PointXY>& adj,
+		PointXY& prev);
+	PointXY greatest_gradient(
+		std::vector<PointXY>& adj,
+		PointXY& prev);
+	PointXY follow_wall(
+		std::vector<PointXY>& adj,
+		PointXY& prev);
+	bool wall_adjacent(PointXY& pos);
 	
-	PointXY right_element(PointXY& wf, PointXY& adj);
-	PointXY up_element(PointXY& wf, PointXY& adj);
-	PointXY left_element(PointXY& wf, PointXY& adj);
 
-	
 private:
 	std::vector<std::vector<int> > wavefront_;
 	std::vector<std::vector<double> > map_;
@@ -99,13 +111,11 @@ void Map::read(const std::string& filepath) {
 
 
 void Map::output_wavefront(const std::string& filepath) {
-
 	std::string line, header;
 	std::ifstream in_file(filepath);
 	std::getline(in_file,header);
 	int width,height,max_val;
 	in_file >> width >> height >> max_val;
-
 	std::ofstream out_file("wavefront.pnm");
 	out_file << header << std::endl;
 	out_file << width << " " << height << " " << max_val << std::endl;
@@ -115,84 +125,94 @@ void Map::output_wavefront(const std::string& filepath) {
 }
 
 
-PointXY Map::adjacent_greatest(PointXY& wf) {
-	std::vector<PointXY> compass = {
-		PointXY(wf.x_,wf.y_-1),
-		PointXY(wf.x_,wf.y_+1),
-		PointXY(wf.x_-1,wf.y_),
-		PointXY(wf.x_+1,wf.y_)
-	};
+std::vector<PointXY> Map::create_compass(PointXY& wf, PointXY& prev) {
+	std::vector<PointXY> compass;
+	PointXY dspl = PointXY(prev.x_-wf.x_,prev.y_-wf.y_);
+	if (dspl.x_ == 0 && dspl.y_ == 1)
+		compass = {
+			PointXY(wf.x_+1,wf.y_-1),
+			PointXY(wf.x_,wf.y_-2),
+			PointXY(wf.x_-1,wf.y_-1) 
+		};
+	else if (dspl.x_ == -1 && dspl.y_ == 0)
+		compass = {
+			PointXY(wf.x_+1,wf.y_+1),
+			PointXY(wf.x_+2,wf.y_),
+			PointXY(wf.x_+1,wf.y_-1) 
+		};
+	else if (dspl.x_ == 0 && dspl.y_ == -1)
+		compass = {
+			PointXY(wf.x_-1,wf.y_+1),
+			PointXY(wf.x_,wf.y_+2),
+			PointXY(wf.x_+1,wf.y_+1) 
+		};
+	else if (dspl.x_ == 1 && dspl.y_ == 0)
+		compass = {
+			PointXY(wf.x_-1,wf.y_-1),
+			PointXY(wf.x_-2,wf.y_),
+			PointXY(wf.x_-1,wf.y_+1) 
+		};
+	else
+		compass = {
+			PointXY(prev.x_,prev.y_)
+		};
+	return compass;
+}
+
+
+PointXY Map::assess_movement(
+	std::vector<PointXY>& adj,
+	PointXY& prev)
+{
+	PointIter p = adj.begin();
+	while (p != adj.end())
+		if (map_[p->y_][p->x_] == 1)
+			p = adj.erase(p);
+		else if (wavefront_[p->y_][p->x_] == 0)
+			return PointXY(p->x_,p->y_);
+		else
+			++p;
+	return this->follow_wall(adj,prev);
+}
+
+
+PointXY Map::follow_wall(
+	std::vector<PointXY>& adj,
+	PointXY& prev)
+{
+	for (PointIter p = adj.begin(); p != adj.end(); ++p)
+		if (this->wall_adjacent(*p))
+			return PointXY(p->x_,p->y_);
+	return PointXY(prev.x_,prev.y_);
+}
+
+
+bool Map::wall_adjacent(PointXY& pos) {
+	int V = 3;
+	for (int i = 1; i < V*V; i += 2) {
+		int r = (pos.y_-1)+i/V,
+			c = (pos.x_-1)+i%V;
+		if (map_[r][c] == 1)
+			return true;
+	}
+	return false;
+}
+
+
+PointXY Map::greatest_gradient(
+	std::vector<PointXY>& adj,
+	PointXY& prev)
+{
+	PointXY max_pos = PointXY(prev.x_,prev.y_);
 	int max_grd = 0;
-	PointXY adjacent = PointXY(0,0);
-	for (std::vector<PointXY>::iterator iter = compass.begin(); 
-		iter != compass.end(); ++iter)
-	{
-		int curr_grd = wavefront_[iter->y_][iter->x_];
-		if (std::abs(curr_grd) > std::abs(max_grd)) {
-			adjacent = PointXY(iter->x_,iter->y_);
-			max_grd = curr_grd;
+	for (PointIter p = adj.begin(); p != adj.end(); ++p) {
+		int grd = wavefront_[p->y_][p->x_];
+		if (grd > max_grd) {
+			max_pos = PointXY(p->x_,p->y_);
+			max_grd = grd;
 		}
 	}
-	return adjacent;
-}
-
-
-bool Map::right_open(PointXY& wf, PointXY& adj, int grd) {
-	PointXY right = this->right_element(wf,adj);
-	return
-		wavefront_[right.y_][right.x_] <= 0 ||
-		std::abs(wavefront_[right.y_][right.x_]) == grd;
-}
-
-
-bool Map::up_open(PointXY& wf, PointXY& adj, int grd) {
-	PointXY up = this->up_element(wf,adj);
-	return
-		wavefront_[up.y_][up.x_] <= 0 ||
-		std::abs(wavefront_[up.y_][up.x_]) == grd;
-}
-
-
-bool Map::left_open(PointXY& wf, PointXY& adj, int grd) {
-	PointXY left = this->left_element(wf,adj);
-	return
-		wavefront_[left.y_][left.x_] <= 0 ||
-		std::abs(wavefront_[left.y_][left.x_]) == grd;
-}
-
-
-PointXY Map::right_element(PointXY& wf, PointXY& adj) {
-	PointXY dspl = PointXY(adj.x_-wf.x_,adj.y_-wf.y_);
-	if (dspl.x_ == 0 && dspl.y_ == 1)
-		dspl = PointXY(1,0);
-	else if (dspl.x_ == 1 && dspl.y_ == 0)
-		dspl = PointXY(0,-1);
-	else if (dspl.x_ == 0 && dspl.y_ == -1)
-		dspl = PointXY(-1,0);
-	else if (dspl.x_ == -1 && dspl.y_ == 0)
-		dspl = PointXY(0,1);
-	return PointXY(wf.x_+dspl.x_,wf.y_+dspl.y_);
-}
-
-
-PointXY Map::up_element(PointXY& wf, PointXY& adj) {
-	return PointXY(
-		-(adj.x_-wf.x_)+wf.x_,
-		-(adj.y_-wf.y_)+wf.y_);
-}
-
-
-PointXY Map::left_element(PointXY& wf, PointXY& adj) {
-	PointXY dspl = PointXY(adj.x_-wf.x_,adj.y_-wf.y_);
-	if (dspl.x_ == 0 && dspl.y_ == 1)
-		dspl = PointXY(-1,0);
-	else if (dspl.x_ == 1 && dspl.y_ == 0)
-		dspl = PointXY(0,1);
-	else if (dspl.x_ == 0 && dspl.y_ == -1)
-		dspl = PointXY(1,0);
-	else if (dspl.x_ == -1 && dspl.y_ == 0)
-		dspl = PointXY(0,-1);
-	return PointXY(wf.x_+dspl.x_,wf.y_+dspl.y_);
+	return max_pos;
 }
 
 
@@ -208,21 +228,18 @@ void Map::wavefront(Point2D& player, Point2D& dest) {
 		while (wavefront_[init_y][dest_x] > 0)
 			--init_y;
 		PointXY wf = PointXY(dest_x,init_y),
+				prev = PointXY(dest_x,init_y+1),
 				end_wave = PointXY(dest_x,init_y);
 		do {
-			wavefront_[wf.y_][wf.x_] = 
-				map_[wf.y_][wf.x_] == 0 ? gradient : -gradient;
-			PointXY adj_wave = this->adjacent_greatest(wf);
-			if (this->right_open(wf,adj_wave,gradient))
-				wf = this->right_element(wf,adj_wave);
-			else if (this->up_open(wf,adj_wave,gradient))
-				wf = this->up_element(wf,adj_wave);
-			else if (this->left_open(wf,adj_wave,gradient))
-				wf = this->left_element(wf,adj_wave);
-			completed = this->destination(wf,player,completed);	
-			
-			std::cout << wf.x_ << " " << wf.y_ << std::endl;
-					
+			std::vector<PointXY> compass = 
+				this->create_compass(wf,prev);
+			PointXY mvmt = this->assess_movement(compass,prev);
+			prev = PointXY(wf.x_,wf.y_);
+			wf = PointXY(mvmt.x_,mvmt.y_);
+			if (wavefront_[wf.y_][wf.x_] == 0 && 
+				map_[wf.y_][wf.x_] == 0)
+				wavefront_[wf.y_][wf.x_] = gradient;
+			completed = this->destination(wf,player,completed);
 		} while (!this->frontier_completed(wf,end_wave));
 		this->output_wavefront(ENVIRONMENT);
 	}
