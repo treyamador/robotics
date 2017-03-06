@@ -42,7 +42,7 @@ class Map {
 
 	
 public:
-	Map();
+	Map(const std::string& filepath);
 	~Map();
 	
 	int wavefront(
@@ -83,8 +83,8 @@ private:
 };
 
 
-Map::Map() {
-	
+Map::Map(const std::string& filepath) {
+	this->read(filepath);
 }
 
 
@@ -116,7 +116,6 @@ void Map::output_wavefront(
 	const std::string& output_path,
 	int gradient)
 {
-
 	std::string line, header;
 	std::ifstream in_file(filepath);
 	std::getline(in_file,header);
@@ -233,7 +232,6 @@ int main(int argc, char* argv[]) {
 	Point2D dest = Point2D(700.0,400.0);
 	Point2D player = Point2D(50.0,50.0);
 	Map map;
-	map.read(ENVIRONMENT);
 	int gradient = map.wavefront(player,dest);
 	map.output_wavefront(ENVIRONMENT,OUTPUT_FILEPATH,gradient);
 	return 0;
