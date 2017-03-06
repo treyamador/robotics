@@ -24,6 +24,7 @@ namespace {
 	const std::string OUTPUT_FILEPATH = "output_wavefront.pnm";
 	const int COLOR_FACTOR = 200;
 	const int DIRECTIONS = 8;
+	const int BERTH = 5;
 	const int INDEX = 0;
 	const int ADJ = 3;
 	
@@ -131,7 +132,10 @@ public:
 	void create_path(
 		PointXY& init,PointXY& dest,
 		int gradient);
-	//void smooth_path(std::vector<PointXY>& path);
+	bool query_adjacent(
+		PointXY& loc, int grd,
+		int off_x, int off_y);
+	void adjust_point(PointXY& loc, int off_x, int off_y);
 	
 	PointXY cast_point(Point2D& point);
 	void clear_perimeter(PointXY*& perimeter);
@@ -249,44 +253,80 @@ bool Map::goal_unreachable(int perimeter_size) {
 }
 
 
-//void Map::smooth_path() {
-//	
-//}
-
-
-// 'walk' across gradient at value to ensure it doesn't hit wall
 void Map::create_path(
 	PointXY& init, PointXY& dest, int gradient)
 {
-	std::vector<PointXY> path = { PointXY(init.x_,init.y_) };
-	while (wave_[path.back().y_][path.back().x_] != 1) {
-		PointXY p = path.back();
+	path_ = { PointXY(init.x_,init.y_) };
+	while (wave_[path_.back().y_][path_.back().x_] != 1) {
+		PointXY p = path_.back();
 		int grd = wave_[p.y_][p.x_];
-		if (wave_[p.y_][p.x_+1] < grd)
-			path.push_back(PointXY(p.x_+1,p.y_));
-		else if (wave_[p.y_][p.x_-1] < grd)
-			path.push_back(PointXY(p.x_-1,p.y_));
-		else if (wave_[p.y_+1][p.x_] < grd)
-			path.push_back(PointXY(p.x_,p.y_+1));
-		else if (wave_[p.y_-1][p.x_] < grd)
-			path.push_back(PointXY(p.x_,p.y_-1));
-		else if (wave_[p.y_+1][p.x_+1] < grd)
-			path.push_back(PointXY(p.x_+1,p.y_+1));
-		else if (wave_[p.y_+1][p.x_-1] < grd)
-			path.push_back(PointXY(p.x_-1,p.y_+1));
-		else if (wave_[p.y_-1][p.x_+1] < grd)
-			path.push_back(PointXY(p.x_+1,p.y_-1));
-		else if (wave_[p.y_-1][p.x_-1] < grd)
-			path.push_back(PointXY(p.x_-1,p.y_-1));
-		else
-			path.push_back(PointXY(p.x_+1,p.y_+1));
-	}
-	path_ = path;
-	for (int i = 0; i < path_.size(); ++i)
+		if(this->query_adjacent(p,grd,1,0))
+			this->adjust_point(p,1,0);
+		else if(this->query_adjacent(p,grd,-1,0))
+			this->adjust_point(p,1,0);
+		else if(this->query_adjacent(p,grd,0,1))
+			this->adjust_point(p,1,0);
+		else if(this->query_adjacent(p,grd,0,-1))
+			this->adjust_point(p,1,0);
+		else if(this->query_adjacent(p,grd,1,1))
+			this->adjust_point(p,1,1);
+		else if(this->query_adjacent(p,grd,-1,1))
+			this->adjust_point(p,1,0);
+		else if(this->query_adjacent(p,grd,1,-1))
+			this->adjust_point(p,1,0);
+		else if(this->query_adjacent(p,grd,-1,-1))
+			this->adjust_point(p,1,0);
+		
+		//else
+		//	this->adjust_point(p,1,1);
+		
 		std::cout << 
-			path_[i].x_ << " " << 
-			path_[i].y_ << " " << 
-			wave_[path_[i].y_][path_[i].x_] << "\n";
+			path_.back().x_ << " x " << 
+			path_.back().y_ << ",  ";
+		
+		//for (int i = 0; i < path_.size(); ++i)
+		//	std::cout << 
+		//		path_[i].x_ << " x " << path_[i].y_ << ": " << 
+		//		wave_[path_[i].y_][path_[i].x_] << ", ";
+		//break;
+	}
+	//for (int i = 0; i < path_.size(); ++i)
+	//	std::cout << 
+	//		path_[i].x_ << " x " << path_[i].y_ << ": " << 
+	//		wave_[path_[i].y_][path_[i].x_] << ", ";
+}	
+
+
+bool Map::query_adjacent(
+	PointXY& loc, int grd,
+	int off_x, int off_y)
+{
+	return 
+		wave_[loc.y_+off_y][loc.x_+off_x] < grd && 
+		map_[loc.y_+off_y][loc.x_+off_x] != 1;
+}
+
+
+/*
+void Map::adjust_point(PointXY& loc, int off_x, int off_y) {
+	int adj_x = 0, adj_y = 0;
+	for (int x = -BERTH; x < BERTH && adj_x == 0; ++x)
+		if (map_[loc.y_+off_y][loc.x_+off_x+x] == 1)
+			adj_x = static_cast<int>(std::copysign(1.0,-x));
+	for (int y = -BERTH; y < BERTH && adj_y == 0; ++y)
+		if (map_[loc.y_+off_y+y][loc.x_+off_x] == 1)
+			adj_y = static_cast<int>(std::copysign(1.0,-y));
+	path_.push_back(PointXY(
+		loc.x_+off_x+adj_x,
+		loc.y_+off_y+adj_y));
+}
+*/
+
+
+void Map::adjust_point(PointXY& loc, int off_x, int off_y) {
+	path_.push_back(PointXY(
+		loc.x_+off_x,
+		loc.y_+off_y));
 }
 
 
