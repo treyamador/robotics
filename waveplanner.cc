@@ -352,14 +352,18 @@ void Map::adjust_point(PointXY& loc, int off_x, int off_y) {
 
 
 bool Map::removable_node(PointXY& init, PointXY& end) {
-	float delta_x = end.x_-init.x_,
-		delta_y = end.y_-init.y_;
-	int iter = static_cast<int>(std::round(std::fabs(delta_y)));
-	delta_x /= delta_y;
-	int row = init.y_, col = init.x_;
-	for (int i = 0; i < iter && row < end.y_; ++i) {
-		col = static_cast<int>(std::round(col + delta_x));
-		if (wave_[++row][col] == 0)
+	double delta_x = static_cast<double>(end.x_-init.x_),
+		delta_y = static_cast<double>(end.y_-init.y_);
+	if (delta_y == 0) 
+		return true;
+	double nrml_x = std::copysign(delta_x/delta_y,delta_x),
+		nrml_y = std::copysign(delta_y/delta_y,delta_y);
+	int iter = static_cast<int>(std::ceil(std::fabs(delta_y)));
+	for (int i = 0; i < iter; ++i) {
+		int r = static_cast<int>(init.y_+i*nrml_y),
+			c_f = static_cast<int>(init.x_+std::floor(i*nrml_x)),
+			c_c = static_cast<int>(init.x_+std::ceil(i*nrml_x));
+		if (wave_[r][c_f] == 0 || wave_[r][c_c] == 0)
 			return false;
 	}
 	return true;
