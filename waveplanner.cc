@@ -10,7 +10,9 @@
  * 
  */
 #include <libplayerc++/playerc++.h>
+#include <algorithm>
 #include <iostream>
+#include <iterator>
 #include <iomanip>
 #include <fstream>
 #include <sstream>
@@ -24,8 +26,10 @@ namespace {
 	const std::string OUTPUT_FILEPATH = "output_wavefront.pnm";
 	const int COLOR_FACTOR = 200;
 	const int DIRECTIONS = 8;
-	const int BERTH = 5;
+	const int OCCUPIED = 1;
+	const int BERTH = 10;
 	const int INDEX = 0;
+	const int FREE = 0;
 	const int ADJ = 3;
 	
 };
@@ -137,14 +141,21 @@ public:
 		int off_x, int off_y);
 	void adjust_point(PointXY& loc, int off_x, int off_y);
 	
+	void prune_path();
+	bool removable_node(PointXY& beg, PointXY& end);
+	
 	PointXY cast_point(Point2D& point);
 	void clear_perimeter(PointXY*& perimeter);
+	
+	bool contains_wall(int span, int row, int col);
+	void fill_grid(int span, int row, int col);
 	
 	void read(const std::string& filepath);
 	void output_wavefront(
 		const std::string& filepath,
 		const std::string& output_path,
 		int gradient);
+	void fill_map();
 	
 	
 private:
@@ -193,7 +204,6 @@ void Map::output_wavefront(
 	std::getline(in_file,header);
 	int width,height,max_val;
 	in_file >> width >> height >> max_val;
-
 	float max_grd = static_cast<float>(gradient);
 	std::ofstream out_file(output_path);
 	out_file << header << std::endl;
@@ -203,6 +213,40 @@ void Map::output_wavefront(
 			out_file << (map_[r][c] == 1 || wave_[r][c] == 0 ? 
 				static_cast<char>(map_[r][c]-1) : 
 				static_cast<char>(wave_[r][c]*COLOR_FACTOR/max_grd));
+}
+
+
+bool Map::contains_wall(int span, int row, int col) {
+	for (int r = row; r < row+span; ++r)
+		for (int c = col; c < col+span; ++c)
+			if (map_[r][c] == 1)
+				return true;
+	return false;
+}
+
+
+void Map::fill_grid(int span, int row, int col) {
+	for (int r = row; r < row+span; ++r)
+		for (int c = col; c < col+span; ++c)
+			map_[r][c] = 1;
+}
+
+
+void Map::fill_map() {
+	
+	const int span = 4;
+	for (size_t r = 0; r < map_.size()-span+1; r+=span) 
+		for (size_t c = 0; c < map_[r].size()-span+1; c+=span)
+			if (this->contains_wall(span,r,c))
+				this->fill_grid(span,r,c);
+	
+	for (size_t r = 0; r < map_.size()-1; ++r)
+		for (size_t c = 0; c < map_[r].size()-1; ++c)
+			if ((map_[r][c] == 1 && map_[r+1][c+1] == 1 &&
+				map_[r+1][c] == 0 && map_[r][c+1] == 0) || 
+				(map_[r][c] == 0 && map_[r+1][c+1] == 0 &&
+				map_[r+1][c] == 1 && map_[r][c+1] == 1))
+				map_[r][c] = map_[r][c+1] = 1;
 }
 
 
@@ -260,41 +304,34 @@ void Map::create_path(
 	while (wave_[path_.back().y_][path_.back().x_] != 1) {
 		PointXY p = path_.back();
 		int grd = wave_[p.y_][p.x_];
-		if(this->query_adjacent(p,grd,1,0))
+		if (this->query_adjacent(p,grd,1,0))
 			this->adjust_point(p,1,0);
-		else if(this->query_adjacent(p,grd,-1,0))
-			this->adjust_point(p,1,0);
-		else if(this->query_adjacent(p,grd,0,1))
-			this->adjust_point(p,1,0);
-		else if(this->query_adjacent(p,grd,0,-1))
-			this->adjust_point(p,1,0);
-		else if(this->query_adjacent(p,grd,1,1))
+		else if (this->query_adjacent(p,grd,-1,0))
+			this->adjust_point(p,-1,0);
+		else if (this->query_adjacent(p,grd,0,1))
+			this->adjust_point(p,0,1);
+		else if (this->query_adjacent(p,grd,0,-1))
+			this->adjust_point(p,0,-1);
+		else if (this->query_adjacent(p,grd,1,1))
 			this->adjust_point(p,1,1);
-		else if(this->query_adjacent(p,grd,-1,1))
-			this->adjust_point(p,1,0);
-		else if(this->query_adjacent(p,grd,1,-1))
-			this->adjust_point(p,1,0);
-		else if(this->query_adjacent(p,grd,-1,-1))
-			this->adjust_point(p,1,0);
-		
-		//else
-		//	this->adjust_point(p,1,1);
-		
-		std::cout << 
-			path_.back().x_ << " x " << 
-			path_.back().y_ << ",  ";
-		
-		//for (int i = 0; i < path_.size(); ++i)
-		//	std::cout << 
-		//		path_[i].x_ << " x " << path_[i].y_ << ": " << 
-		//		wave_[path_[i].y_][path_[i].x_] << ", ";
-		//break;
+		else if (this->query_adjacent(p,grd,-1,1))
+			this->adjust_point(p,-1,1);
+		else if (this->query_adjacent(p,grd,1,-1))
+			this->adjust_point(p,1,-1);
+		else if (this->query_adjacent(p,grd,-1,-1))
+			this->adjust_point(p,-1,-1);
+		else
+			this->adjust_point(p,1,1);
 	}
-	//for (int i = 0; i < path_.size(); ++i)
-	//	std::cout << 
-	//		path_[i].x_ << " x " << path_[i].y_ << ": " << 
-	//		wave_[path_[i].y_][path_[i].x_] << ", ";
-}	
+	this->prune_path();
+	
+	for (int i = 0; i < path_.size(); ++i)
+		std::cout << 
+			path_[i].x_ << " " << 
+			path_[i].y_ << " " << 
+			wave_[path_[i].y_][path_[i].x_] << "\n";
+	
+}
 
 
 bool Map::query_adjacent(
@@ -307,26 +344,35 @@ bool Map::query_adjacent(
 }
 
 
-/*
-void Map::adjust_point(PointXY& loc, int off_x, int off_y) {
-	int adj_x = 0, adj_y = 0;
-	for (int x = -BERTH; x < BERTH && adj_x == 0; ++x)
-		if (map_[loc.y_+off_y][loc.x_+off_x+x] == 1)
-			adj_x = static_cast<int>(std::copysign(1.0,-x));
-	for (int y = -BERTH; y < BERTH && adj_y == 0; ++y)
-		if (map_[loc.y_+off_y+y][loc.x_+off_x] == 1)
-			adj_y = static_cast<int>(std::copysign(1.0,-y));
-	path_.push_back(PointXY(
-		loc.x_+off_x+adj_x,
-		loc.y_+off_y+adj_y));
-}
-*/
-
-
 void Map::adjust_point(PointXY& loc, int off_x, int off_y) {
 	path_.push_back(PointXY(
 		loc.x_+off_x,
 		loc.y_+off_y));
+}
+
+
+bool Map::removable_node(PointXY& init, PointXY& end) {
+	float delta_x = end.x_-init.x_,
+		delta_y = end.y_-init.y_;
+	int iter = static_cast<int>(std::round(std::fabs(delta_y)));
+	delta_x /= delta_y;
+	int row = init.y_, col = init.x_;
+	for (int i = 0; i < iter && row < end.y_; ++i) {
+		col = static_cast<int>(std::round(col + delta_x));
+		if (wave_[++row][col] == 0)
+			return false;
+	}
+	return true;
+}
+
+
+void Map::prune_path() {
+	pIter iter = path_.begin()+1;
+	while (iter != path_.end()-1)
+		if(this->removable_node(*(iter-1),*(iter+1)))
+			iter = path_.erase(iter);
+		else
+			++iter;
 }
 
 
@@ -362,8 +408,6 @@ void Map::clear_perimeter(PointXY*& perimeter) {
 		perimeter = nullptr;
 	}
 }
-
-
 
 
 
@@ -484,21 +528,20 @@ int Robot::loop() {
 
 
 int main(int argc, char* argv[]) {
+	
 	Point2D dest = Point2D(700.0,400.0);
 	Point2D player = Point2D(50.0,50.0);
 	Map map = Map(ENVIRONMENT);
+	map.fill_map();
 	int gradient = map.wavefront(player,dest);
 	if (gradient != -1)
 		std::cout << "Gradient complete" << std::endl;
-	//map.output_wavefront(ENVIRONMENT,OUTPUT_FILEPATH,gradient);
+	map.output_wavefront(ENVIRONMENT,OUTPUT_FILEPATH,gradient);
 	PointXY dst = map.cast_point(dest),
 			plyr = map.cast_point(player);
 	map.create_path(plyr,dst,gradient);
 	
-	
-	
 	return 0;
-	
 	
 	
 	
