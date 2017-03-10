@@ -22,8 +22,12 @@
 
 
 namespace {
-	const std::string ENVIRONMENT = "hospital_section.pnm";
+
 	const std::string OUTPUT_FILEPATH = "output_wavefront.pnm";
+	const std::string ENVIRONMENT = "hospital_section.pnm";
+	const float MAP_X_COORDINATES = 44.0;
+	const float MAP_Y_COORDINATES = 18.0;
+	const int OBSTACLE_GROWTH = 4;
 	const int COLOR_FACTOR = 200;
 	const int DIRECTIONS = 8;
 	const int OCCUPIED = 1;
@@ -31,7 +35,7 @@ namespace {
 	const int INDEX = 0;
 	const int FREE = 0;
 	const int ADJ = 3;
-	
+
 };
 
 
@@ -155,7 +159,10 @@ public:
 		const std::string& filepath,
 		const std::string& output_path,
 		int gradient);
-	void fill_map();
+	void grow_obstacles(int size_growth);
+	
+	int height_pixel();
+	int width_pixel();
 	
 	
 private:
@@ -169,6 +176,7 @@ private:
 
 Map::Map(const std::string& filepath) {
 	this->read(filepath);
+	this->grow_obstacles(OBSTACLE_GROWTH);
 }
 
 
@@ -232,9 +240,8 @@ void Map::fill_grid(int span, int row, int col) {
 }
 
 
-void Map::fill_map() {
+void Map::grow_obstacles(int span) {
 	
-	const int span = 4;
 	for (size_t r = 0; r < map_.size()-span+1; r+=span) 
 		for (size_t c = 0; c < map_[r].size()-span+1; c+=span)
 			if (this->contains_wall(span,r,c))
@@ -354,7 +361,7 @@ void Map::adjust_point(PointXY& loc, int off_x, int off_y) {
 bool Map::removable_node(PointXY& init, PointXY& end) {
 	double delta_x = static_cast<double>(end.x_-init.x_),
 		delta_y = static_cast<double>(end.y_-init.y_);
-	if (delta_y == 0) 
+	if (delta_y == 0.0 || delta_x == 0.0) 
 		return true;
 	double nrml_x = std::copysign(delta_x/delta_y,delta_x),
 		nrml_y = std::copysign(delta_y/delta_y,delta_y);
@@ -414,6 +421,15 @@ void Map::clear_perimeter(PointXY*& perimeter) {
 }
 
 
+int Map::width_pixel() {
+	return static_cast<int>(map_[0].size());
+}
+
+
+int Map::height_pixel() {
+	return static_cast<int>(map_.size());
+}
+
 
 class Robot {
 
@@ -424,15 +440,30 @@ public:
 	int loop();
 
 
+	PointXY coordinate_to_pixel(Point2D& node);
+	Point2D pixel_to_coordinate(PointXY& node);
+
+
 private:
 	void navigator(
 		PlayerCc::Position2dProxy& pp);
 	
-	void smooth_path();
+	
+	
+	
+	
 	
 	
 	std::vector<Point2D> parse_coordinates(
 		int num, char* points[]);
+	
+	bool reached_coordinate(
+		PlayerCc::Position2dProxy& pp,
+		Point2D& destination);
+		
+	
+	
+	
 	int mission_complete();
 	
 
@@ -462,21 +493,9 @@ void Robot::navigator(
 	PlayerCc::Position2dProxy& pp)
 {
 	// coordinates_;
-	this->smooth_path();
-	
-}
-
-
-void Robot::smooth_path() {
-	
-	//map_.smooth_path();
-	
 	
 	
 }
-
-
-
 
 
 std::vector<Point2D> Robot::parse_coordinates(
@@ -496,6 +515,37 @@ std::vector<Point2D> Robot::parse_coordinates(
 				std::atoi(tokens[1].c_str())));
 	}
 	return coordinates;
+}
+
+
+// pixel to coordinates
+Point2D Robot::pixel_to_coordinate(PointXY& node) {
+	double x = node.x_*(MAP_X_COORDINATES/map_.width_pixel()) - 
+		MAP_X_COORDINATES/2;
+	double y = node.y_*(MAP_Y_COORDINATES/map_.height_pixel()) -
+		MAP_Y_COORDINATES/2;
+	return Point2D(x,y);
+}
+
+
+// coordinates to pixels
+PointXY Robot::coordinate_to_pixel(Point2D& node) {
+	double x = node.x_*(map_.width_pixel()/MAP_X_COORDINATES) +
+		map_.width_pixel()/2;
+	double y = node.y_*(map_.height_pixel()/MAP_Y_COORDINATES) + 
+		map_.height_pixel()/2;
+	return PointXY(static_cast<int>(x),static_cast<int>(y));
+}
+
+
+bool Robot::reached_coordinate(
+	PlayerCc::Position2dProxy& pp,
+	Point2D& destination)
+{
+	bound_->reposition(pp.GetXPos(),pp.GetYPos());
+	if(bound_->collides(&destination))
+		return true;
+	return false;
 }
 
 
@@ -531,26 +581,142 @@ int Robot::loop() {
 
 
 
+// pixel to coordinates
+Point2D pixel_to_coordinate(PointXY& node) {
+	//int width = map_.width_pixel(),
+	//	height = map_.height_pixel();
+	
+	
+	
+	int width = 1086, height = 443;	
+	double x = (MAP_X_COORDINATES/width)*node.x_ - 
+			MAP_X_COORDINATES/2,
+		y = MAP_Y_COORDINATES/2 -
+			(MAP_Y_COORDINATES/height)*node.y_;
+	return Point2D(x,y);
+	
+	
+	
+	/*
+	int width = 1086, height = 443;	
+	double x = (MAP_X_COORDINATES/width)*node.x_ - 
+			MAP_X_COORDINATES/2,
+		y = MAP_Y_COORDINATES/2 -
+			(MAP_Y_COORDINATES/height)*node.y_;
+	return Point2D(x,y);
+	*/
+	
+	/*
+	double x = node.x_*(MAP_X_COORDINATES/1086) - 
+		MAP_X_COORDINATES/2;
+	double y = node.y_*(MAP_Y_COORDINATES/443) -
+		MAP_Y_COORDINATES/2;
+	return Point2D(x,y);
+	*/
+}
+
+
+// coordinates to pixels
+PointXY coordinate_to_pixel(Point2D& node) {
+	//int width = map_.width_pixel(),
+	//	height = map_.height_pixel();
+	
+	int width = 1086, height = 443;
+	int x = width/2 + (width/MAP_X_COORDINATES)*node.x_,
+		y = height/2 - (height/MAP_Y_COORDINATES)*node.y_;
+	return PointXY(x,y);
+	
+	
+	/*
+	double x = node.x_*(1086/MAP_X_COORDINATES) +
+		1086/2;
+	double y = node.y_*(443/MAP_Y_COORDINATES) + 
+		443/2;
+	return PointXY(static_cast<int>(x),static_cast<int>(y));
+	*/
+}
+
+
+
+
 int main(int argc, char* argv[]) {
+	
+	//if (argc >= 2) {
+	//	Robot robot(argc,argv);
+	//	return robot.loop();
+	//} else {
+	//	return -1;
+	//}
+	
+	
+	//Robot robot = Robot(argc,argv);
 	
 	Point2D dest = Point2D(700.0,400.0);
 	Point2D player = Point2D(50.0,50.0);
 	Map map = Map(ENVIRONMENT);
-	map.fill_map();
-	int gradient = map.wavefront(player,dest);
-	if (gradient != -1)
-		std::cout << "Gradient complete" << std::endl;
-	map.output_wavefront(ENVIRONMENT,OUTPUT_FILEPATH,gradient);
-	PointXY dst = map.cast_point(dest),
-			plyr = map.cast_point(player);
-	map.create_path(plyr,dst,gradient);
+	map.grow_obstacles(OBSTACLE_GROWTH);
+	
+	int width = map.width_pixel(),
+		height = map.height_pixel();
+	
+	
+	/*
+	std::vector<PointXY> points_xy = {
+		PointXY(1086,443),
+		PointXY(3*1086/4,3*443/4),
+		PointXY(1086/2,443/2),
+		PointXY(1086/4,443/4),
+		PointXY(0,0),
+		PointXY(0,400)
+	};
+	
+	std::vector<Point2D> points_2d = {
+		Point2D(-22,9),
+		Point2D(-11,4.5),
+		Point2D(0,0),
+		Point2D(11,-4.5),
+		Point2D(22,-9),
+		Point2D(6,-5)
+	};
+	*/
+	
+	
+	std::vector<PointXY> points_xy = {
+		PointXY(1086/2,443),
+		PointXY(1086/4,3*443/4),
+		PointXY(3*1086/4,443/4),
+	};
+	
+	std::vector<Point2D> points_2d = {
+		Point2D(0,-9),
+		Point2D(-11,-4.5),
+		Point2D(11,4.5),
+	};
+	
+	
+	for (auto& i : points_xy) {
+		Point2D p = pixel_to_coordinate(i);
+		std::cout << p.x_ << " " << p.y_ << std::endl;
+	}
+	std::cout << "\n" << std::endl;
+		
+	for (auto& i : points_2d) {
+		PointXY p = coordinate_to_pixel(i);
+		std::cout << p.x_ << " " << p.y_ << std::endl;
+	}
+	
+	
+	
+	//int gradient = map.wavefront(player,dest);
+	//if (gradient != -1)
+	//	std::cout << "Gradient complete" << std::endl;
+	//map.output_wavefront(ENVIRONMENT,OUTPUT_FILEPATH,gradient);
+	//PointXY dst = map.cast_point(dest),
+	//		plyr = map.cast_point(player);
+	//map.create_path(plyr,dst,gradient);
 	
 	return 0;
 	
-	
-	
-	//Robot robot(argc,argv);
-	//return robot.loop();
 	
 }
 
