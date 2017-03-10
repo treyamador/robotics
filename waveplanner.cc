@@ -25,11 +25,21 @@ namespace {
 
 	const std::string OUTPUT_FILEPATH = "output_wavefront.pnm";
 	const std::string ENVIRONMENT = "hospital_section.pnm";
+	const double RAD_TO_DEG = 180.0/M_PI;
+	const double DEG_TO_RAD = M_PI/180.0;	
 	const float MAP_X_COORDINATES = 44.0;
 	const float MAP_Y_COORDINATES = 18.0;
+	const double MIN_THRESHOLD = 0.5;
 	const int OBSTACLE_GROWTH = 4;
+	const double THRESHOLD = 2.0;
+	const double LASER_MAX = 8.0;
 	const int COLOR_FACTOR = 200;
+	const int MIDDLE_LASER = 90;
+	const double V_SLOW = 0.01;
+	const double V_MAX = 10.0;
+	const double FACTOR = 0.2;
 	const int DIRECTIONS = 8;
+	const int GOAL_RANGE = 2;
 	const int OCCUPIED = 1;
 	const int BERTH = 10;
 	const int INDEX = 0;
@@ -387,8 +397,6 @@ void Map::prune_path() {
 
 int Map::wavefront(PointXY& plyr, PointXY& dest) {
 	int gradient = 1, size = 1;
-	//PointXY dest = this->cast_point(destination),
-	//		plyr = this->cast_point(player);
 	this->wave_[dest.y_][dest.x_] = gradient;
 	PointXY* perim = new PointXY[size];
 	perim[size-1] = PointXY(dest.x_,dest.y_);
@@ -431,41 +439,50 @@ int Map::height_pixel() {
 
 class Robot {
 
-
 public:
 	Robot(int num, char* points[]);
 	~Robot();
 	int loop();
 
 
-
-
 private:
 	void navigator(
 		PlayerCc::Position2dProxy& pp);
+	void pilot(PlayerCc::Position2dProxy& pp);
+	void go_to_waypoint(
+		PlayerCc::Position2dProxy& pp,
+		double& distance, double& angle);
+	void avoid_obstacle(
+		PlayerCc::LaserProxy& lp,
+		double& distance,
+		double& angle);
+	void traverse(
+		PlayerCc::Position2dProxy& pp,
+		double velocity, double angle);
 	
+	bool unobstructed(
+		PlayerCc::LaserProxy& lp,
+		double velocity,
+		double angle);
+	
+	Vector2D calculate_vector(
+		double magnitude,
+		double radians);
 	PointXY coordinate_to_pixel(Point2D& node);
 	Point2D pixel_to_coordinate(PointXY& node);
-	
-	
-	
-	
-	
 	
 	std::vector<Point2D> parse_coordinates(
 		int num, char* points[]);
 	
 	bool reached_coordinate(
 		PlayerCc::Position2dProxy& pp,
-		Point2D& destination);
-		
-	
-	
-	
+		Point2D& destination);	
+	bool path_complete();
 	int mission_complete();
 	
 
 private:
+	std::vector<Point2D>::iterator coordinate_;
 	std::vector<Point2D> coordinates_;
 	BoundingBox* bound_;
 	Map map_;
@@ -507,11 +524,107 @@ void Robot::navigator(
 	} else {
 		std::cout << "path unreachable" << std::endl;
 	}
-	
-	for (auto iter = coordinates_.begin(); 
-		iter != coordinates_.end(); ++iter)
-		std::cout << iter->x_ << " " << iter->y_ << std::endl;
-	
+	coordinate_ = coordinates_.begin();
+}
+
+
+void Robot::pilot(PlayerCc::Position2dProxy& pp) {
+	if (!this->path_complete() && 
+		this->reached_coordinate(pp,*coordinate_))
+		++coordinate_;
+}
+
+
+void Robot::go_to_waypoint(
+	PlayerCc::Position2dProxy& pp,
+	double& distance, double& angle)
+{
+	Point2D goal = *coordinate_;
+	double distance_y = goal.y_-pp.GetYPos();
+	double distance_x = goal.x_-pp.GetXPos();
+	distance = std::sqrt(
+		std::pow(distance_x,2.0) + 
+		std::pow(distance_y,2.0));
+	double coordinate_angle = 
+		std::copysign(1.0,distance_y) * 
+		std::acos(distance_x/distance);
+	double yaw_angle = pp.GetYaw();
+	angle = coordinate_angle - yaw_angle;
+}
+
+
+void Robot::avoid_obstacle(
+	PlayerCc::LaserProxy& lp,
+	double& distance,
+	double& angle)
+{
+	if (!this->unobstructed(lp,distance,angle)){
+		Vector2D velocity = 
+			this->calculate_vector(distance,angle),
+			tangential = Vector2D(0.0,0.0),
+			summation = Vector2D(0.0,0.0);
+		int count = lp.GetCount();
+		bool sizeable_margin = true;
+		for (int i = 0; i < count; ++i) {
+			double magnitude = lp[i];
+			double weighted = (magnitude != 0.0) ? 
+				FACTOR * (THRESHOLD / magnitude) : 0.0;
+			double radian = (i-MIDDLE_LASER)*DEG_TO_RAD;
+			Vector2D iterant = Vector2D(
+				weighted*std::cos(radian),
+				-weighted*std::sin(radian));
+			if (magnitude < MIN_THRESHOLD)
+				sizeable_margin = false;
+			else if (magnitude < THRESHOLD)
+				tangential += iterant;
+			Vector2D sum = 
+				this->calculate_vector(magnitude,radian);
+			summation += sum;
+		}
+		if (sizeable_margin) {
+			velocity += tangential;
+			distance = std::min(V_MAX,velocity.magnitude());
+			angle = velocity.theta();
+		}
+		else {
+			angle = std::copysign(
+				1.0,summation.theta());
+			distance = V_SLOW;
+		}
+	}
+}
+
+
+void Robot::traverse(
+	PlayerCc::Position2dProxy& pp,
+	double velocity, double angle)
+{
+	pp.SetSpeed(velocity,angle);
+}
+
+
+
+bool Robot::unobstructed(
+	PlayerCc::LaserProxy& lp,
+	double velocity,
+	double angle)
+{
+	int degree = static_cast<int>(
+		angle*RAD_TO_DEG)+MIDDLE_LASER;
+	return 
+		degree > MIDDLE_LASER-GOAL_RANGE && 
+		degree < MIDDLE_LASER+GOAL_RANGE && 
+		velocity < lp[degree];
+}
+
+
+Vector2D Robot::calculate_vector(
+	double magnitude,
+	double radians) 
+{
+	return Vector2D(
+		magnitude * std::cos(radians),
+		magnitude * std::sin(radians));
 }
 
 
@@ -566,6 +679,11 @@ bool Robot::reached_coordinate(
 }
 
 
+bool Robot::path_complete() {
+	return coordinate_ == coordinates_.end();
+}
+
+
 int Robot::mission_complete() {
 	std::cout << "Mission Accomplished.\n" << std::endl;
 	return 0;
@@ -579,15 +697,16 @@ int Robot::loop() {
 			PlayerCc::PLAYER_PORTNUM);
 		PlayerCc::Position2dProxy pp(&robot,INDEX);
 		PlayerCc::LaserProxy lp(&robot,INDEX);
+		robot.Read();		
 		pp.RequestGeom();
-		robot.Read();
 		this->navigator(pp);
-		while (true) {
+		while (!this->path_complete()) {
 			robot.Read();
 			double velocity = 0.0, angle = 0.0;
-			//this->go_to(pp,goal_,velocity,angle);
-			//this->avoid_obstacle(lp,velocity,angle);
-			//this->pilot(pp,velocity,angle);
+			this->go_to_waypoint(pp,velocity,angle);
+			this->avoid_obstacle(lp,velocity,angle);
+			this->traverse(pp,velocity,angle);
+			this->pilot(pp);
 		}
 	} catch (PlayerCc::PlayerError& e) {
 		std::cerr << e << std::endl;
