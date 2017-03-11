@@ -30,14 +30,14 @@ namespace {
 	const float MAP_X_COORDINATES = 44.0;
 	const float MAP_Y_COORDINATES = 18.0;
 	const double MIN_THRESHOLD = 0.5;
-	const int OBSTACLE_GROWTH = 4;
+	const int OBSTACLE_GROWTH = 18;
 	const double THRESHOLD = 2.0;
 	const double LASER_MAX = 8.0;
 	const int COLOR_FACTOR = 200;
 	const int MIDDLE_LASER = 90;
-	const double V_SLOW = 0.01;
+	const double V_SLOW = 0.1;
 	const double V_MAX = 10.0;
-	const double FACTOR = 0.2;
+	const double FACTOR = 0.05;
 	const int DIRECTIONS = 8;
 	const int GOAL_RANGE = 2;
 	const int OCCUPIED = 1;
@@ -163,13 +163,17 @@ public:
 	
 	bool contains_wall(int span, int row, int col);
 	void fill_grid(int span, int row, int col);
+	void grow_obstacles(int size_growth);
+	void grow_pixels(
+		std::vector<std::vector<double> >& map,
+		int row, int col);
 	
 	void read(const std::string& filepath);
 	void output_wavefront(
 		const std::string& filepath,
 		const std::string& output_path,
 		int gradient);
-	void grow_obstacles(int size_growth);
+	
 	
 	int height_pixel();
 	int width_pixel();
@@ -180,7 +184,7 @@ private:
 	std::vector<std::vector<int> > wave_;
 	std::vector<PointXY> path_;
 	
-
+	
 };
 
 
@@ -251,19 +255,29 @@ void Map::fill_grid(int span, int row, int col) {
 
 
 void Map::grow_obstacles(int span) {
-	
-	for (size_t r = 0; r < map_.size()-span+1; r+=span) 
-		for (size_t c = 0; c < map_[r].size()-span+1; c+=span)
-			if (this->contains_wall(span,r,c))
-				this->fill_grid(span,r,c);
-	
-	for (size_t r = 0; r < map_.size()-1; ++r)
-		for (size_t c = 0; c < map_[r].size()-1; ++c)
-			if ((map_[r][c] == 1 && map_[r+1][c+1] == 1 &&
-				map_[r+1][c] == 0 && map_[r][c+1] == 0) || 
-				(map_[r][c] == 0 && map_[r+1][c+1] == 0 &&
-				map_[r+1][c] == 1 && map_[r][c+1] == 1))
-				map_[r][c] = map_[r][c+1] = 1;
+	std::vector<std::vector<double> > map = map_;
+	for (size_t r = 0; r < map_.size(); ++r)
+		for (size_t c = 0; c < map_[r].size(); ++c)
+			if (map_[r][c] == 1)
+				this->grow_pixels(map,r,c);
+	map_ = map;
+}
+
+
+void Map::grow_pixels(
+	std::vector<std::vector<double> >& map,
+	int row, int col)
+{
+	int offset = OBSTACLE_GROWTH/2;
+	for (int r = row-offset; r < row+offset; ++r) {
+		for (int c = col-offset; c < col+offset; ++c) {
+			try {
+				map.at(r).at(c) = 1;
+			} catch (const std::out_of_range& err) {
+				// there is not much to do when catching this
+			}
+		}
+	}
 }
 
 
@@ -478,6 +492,7 @@ private:
 		PlayerCc::Position2dProxy& pp,
 		Point2D& destination);	
 	bool path_complete();
+	void path_unreachable();
 	int mission_complete();
 	
 
@@ -508,7 +523,6 @@ void Robot::navigator(
 	PlayerCc::Position2dProxy& pp)
 {
 	Point2D init_robot = Point2D(pp.GetXPos(),pp.GetYPos());
-	std::cout << init_robot.x_ << " " << init_robot.y_ << std::endl;
 	PointXY pos = this->coordinate_to_pixel(init_robot),
 			goal = this->coordinate_to_pixel(coordinates_.back());
 	coordinates_.clear();
@@ -521,14 +535,26 @@ void Robot::navigator(
 			iter != path.end(); ++iter)
 			coordinates_.push_back(
 				this->pixel_to_coordinate(*iter));
+		coordinate_ = coordinates_.begin();
 	} else {
-		std::cout << "path unreachable" << std::endl;
+		this->path_unreachable();
 	}
-	coordinate_ = coordinates_.begin();
+	
+	// print the path out...
+	//for (auto iter = coordinates_.begin(); 
+	//	iter != coordinates_.end(); ++iter)
+	//{
+	//	std::cout << iter->x_ << " " << iter->y_ << std::endl;
+	//}
+	
 }
 
 
 void Robot::pilot(PlayerCc::Position2dProxy& pp) {
+	
+	//auto pnt = *coordinate_;
+	//std::cout << pnt.x_ << " " << pnt.y_ << "\n";
+	
 	if (!this->path_complete() && 
 		this->reached_coordinate(pp,*coordinate_))
 		++coordinate_;
@@ -558,6 +584,8 @@ void Robot::avoid_obstacle(
 	double& distance,
 	double& angle)
 {
+	
+	// improve unobstructed function
 	if (!this->unobstructed(lp,distance,angle)){
 		Vector2D velocity = 
 			this->calculate_vector(distance,angle),
@@ -581,6 +609,8 @@ void Robot::avoid_obstacle(
 				this->calculate_vector(magnitude,radian);
 			summation += sum;
 		}
+		
+		// improve this
 		if (sizeable_margin) {
 			velocity += tangential;
 			distance = std::min(V_MAX,velocity.magnitude());
@@ -652,8 +682,8 @@ std::vector<Point2D> Robot::parse_coordinates(
 Point2D Robot::pixel_to_coordinate(PointXY& node) {
 	return Point2D(
 		(MAP_X_COORDINATES/map_.width_pixel())*node.x_ -
-			MAP_X_COORDINATES/2,
-		MAP_Y_COORDINATES/2 - 
+			MAP_X_COORDINATES/2.0,
+		MAP_Y_COORDINATES/2.0 - 
 			(MAP_Y_COORDINATES/map_.height_pixel())*node.y_);
 }
 
@@ -661,10 +691,10 @@ Point2D Robot::pixel_to_coordinate(PointXY& node) {
 // coordinates to pixels
 PointXY Robot::coordinate_to_pixel(Point2D& node) {
 	return PointXY(
-		map_.width_pixel()/2 +
-			(map_.width_pixel()/MAP_X_COORDINATES)*node.x_,
-		map_.height_pixel()/2 -
-			(map_.height_pixel()/MAP_Y_COORDINATES)*node.y_);
+		static_cast<int>(std::round(map_.width_pixel()/2.0 +
+			(map_.width_pixel()/MAP_X_COORDINATES)*node.x_)),
+		static_cast<int>(std::round(map_.height_pixel()/2.0 -
+			(map_.height_pixel()/MAP_Y_COORDINATES)*node.y_)));
 }
 
 
@@ -681,6 +711,12 @@ bool Robot::reached_coordinate(
 
 bool Robot::path_complete() {
 	return coordinate_ == coordinates_.end();
+}
+
+
+void Robot::path_unreachable() {
+	std::cout << "The goal cannot be reached.\n" << std::endl;
+	coordinate_ = coordinates_.end();
 }
 
 
@@ -723,8 +759,51 @@ int main(int argc, char* argv[]) {
 	} else {
 		return -1;
 	}
+	return 0;
 }
 
+
+
+
+
+
+/*
+
+// pixel to coordinates
+Point2D pixel_to_coordinate(PointXY& node) {
+	return Point2D(
+		(MAP_X_COORDINATES/1086.0)*node.x_ -
+			MAP_X_COORDINATES/2,
+		MAP_Y_COORDINATES/2 - 
+			(MAP_Y_COORDINATES/443.0)*node.y_);
+}
+
+
+// coordinates to pixels
+PointXY coordinate_to_pixel(Point2D& node) {
+	return PointXY(
+		static_cast<int>(std::round(1086.0/2 +
+			(1086.0/MAP_X_COORDINATES)*node.x_)),
+		static_cast<int>(std::round(443.0/2 -
+			(443.0/MAP_Y_COORDINATES)*node.y_)));
+}
+
+
+int main(int argc, char* argv[]) {
+	
+	Point2D a = Point2D(1.5,7.5);
+	PointXY b = coordinate_to_pixel(a);
+	Point2D c = pixel_to_coordinate(b);
+	
+	std::cout << 
+		a.x_ << " x " << a.y_ << ", " <<
+		b.x_ << " x " << b.y_ << ", " <<
+		c.x_ << " x " << c.y_ << "\n"; 
+	
+	return 0;
+}
+
+*/
 
 
 
