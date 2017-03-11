@@ -29,9 +29,9 @@ namespace {
 	const double DEG_TO_RAD = M_PI/180.0;	
 	const float MAP_X_COORDINATES = 44.0;
 	const float MAP_Y_COORDINATES = 18.0;
-	const double MIN_THRESHOLD = 0.5;
+	const double MIN_THRESHOLD = 0.4;
 	const int OBSTACLE_GROWTH = 18;
-	const double THRESHOLD = 2.0;
+	const double THRESHOLD = 1.0;
 	const double LASER_MAX = 8.0;
 	const int COLOR_FACTOR = 200;
 	const int MIDDLE_LASER = 90;
@@ -104,7 +104,7 @@ struct Vector2D {
 struct BoundingBox {
 
 	BoundingBox(double x, double y) : 
-		x_(x), y_(y), range_(0.1)
+		x_(x), y_(y), range_(0.15)
 	{}
 	void reposition(double x, double y) {
 		x_ = x; 
@@ -478,6 +478,13 @@ private:
 		PlayerCc::LaserProxy& lp,
 		double velocity,
 		double angle);
+		
+	bool unobstructed(
+		PlayerCc::LaserProxy& lp,
+		Point2D& goal,
+		double distance,
+		double angle
+	);
 	
 	Vector2D calculate_vector(
 		double magnitude,
@@ -543,21 +550,20 @@ void Robot::navigator(
 	// print the path out...
 	//for (auto iter = coordinates_.begin(); 
 	//	iter != coordinates_.end(); ++iter)
-	//{
 	//	std::cout << iter->x_ << " " << iter->y_ << std::endl;
-	//}
 	
 }
 
 
 void Robot::pilot(PlayerCc::Position2dProxy& pp) {
 	
-	//auto pnt = *coordinate_;
-	//std::cout << pnt.x_ << " " << pnt.y_ << "\n";
+	auto pnt = *coordinate_;
+	std::cout << pnt.x_ << " " << pnt.y_ << "\n";
 	
 	if (!this->path_complete() && 
-		this->reached_coordinate(pp,*coordinate_))
+		this->reached_coordinate(pp,*coordinate_)) {
 		++coordinate_;
+	}
 }
 
 
@@ -586,6 +592,9 @@ void Robot::avoid_obstacle(
 {
 	
 	// improve unobstructed function
+	
+	this->unobstructed(lp,*coordinate_,distance,angle);
+	
 	if (!this->unobstructed(lp,distance,angle)){
 		Vector2D velocity = 
 			this->calculate_vector(distance,angle),
@@ -613,7 +622,8 @@ void Robot::avoid_obstacle(
 		// improve this
 		if (sizeable_margin) {
 			velocity += tangential;
-			distance = std::min(V_MAX,velocity.magnitude());
+			//distance = std::min(V_MAX,velocity.magnitude());
+			distance = V_MAX;
 			angle = velocity.theta();
 		}
 		else {
@@ -648,6 +658,34 @@ bool Robot::unobstructed(
 }
 
 
+// work this out later!
+bool Robot::unobstructed(
+	PlayerCc::LaserProxy& lp, Point2D& goal,
+	double distance, double angle)
+{
+	const int width_degrees = 8;
+	int max = static_cast<int>(std::ceil(
+			angle*RAD_TO_DEG+MIDDLE_LASER)),
+		min = static_cast<int>(std::floor(
+			angle*RAD_TO_DEG+MIDDLE_LASER));
+	
+	std::cout << max << " " << min << std::endl;
+	
+	if (max < MIDDLE_LASER-width_degrees ||
+		max >= MIDDLE_LASER+width_degrees ||
+		min < MIDDLE_LASER-width_degrees ||
+		min >= MIDDLE_LASER+width_degrees)
+		return false;
+	if (lp[max] < distance || lp[min] < distance)
+		return false;
+	for (int i = MIDDLE_LASER-width_degrees; 
+		i < MIDDLE_LASER+width_degrees; ++i)
+		if (lp[i] < distance)
+			return false;
+	return true;
+}
+
+
 Vector2D Robot::calculate_vector(
 	double magnitude,
 	double radians) 
@@ -671,8 +709,8 @@ std::vector<Point2D> Robot::parse_coordinates(
 			tokens.push_back(item);
 		if (tokens.size() >= 2)
 			coordinates.push_back(Point2D(
-				std::atoi(tokens[0].c_str()),
-				std::atoi(tokens[1].c_str())));
+				std::atof(tokens[0].c_str()),
+				std::atof(tokens[1].c_str())));
 	}
 	return coordinates;
 }
@@ -733,7 +771,7 @@ int Robot::loop() {
 			PlayerCc::PLAYER_PORTNUM);
 		PlayerCc::Position2dProxy pp(&robot,INDEX);
 		PlayerCc::LaserProxy lp(&robot,INDEX);
-		robot.Read();		
+		robot.Read();
 		pp.RequestGeom();
 		this->navigator(pp);
 		while (!this->path_complete()) {
@@ -761,50 +799,6 @@ int main(int argc, char* argv[]) {
 	}
 	return 0;
 }
-
-
-
-
-
-
-/*
-
-// pixel to coordinates
-Point2D pixel_to_coordinate(PointXY& node) {
-	return Point2D(
-		(MAP_X_COORDINATES/1086.0)*node.x_ -
-			MAP_X_COORDINATES/2,
-		MAP_Y_COORDINATES/2 - 
-			(MAP_Y_COORDINATES/443.0)*node.y_);
-}
-
-
-// coordinates to pixels
-PointXY coordinate_to_pixel(Point2D& node) {
-	return PointXY(
-		static_cast<int>(std::round(1086.0/2 +
-			(1086.0/MAP_X_COORDINATES)*node.x_)),
-		static_cast<int>(std::round(443.0/2 -
-			(443.0/MAP_Y_COORDINATES)*node.y_)));
-}
-
-
-int main(int argc, char* argv[]) {
-	
-	Point2D a = Point2D(1.5,7.5);
-	PointXY b = coordinate_to_pixel(a);
-	Point2D c = pixel_to_coordinate(b);
-	
-	std::cout << 
-		a.x_ << " x " << a.y_ << ", " <<
-		b.x_ << " x " << b.y_ << ", " <<
-		c.x_ << " x " << c.y_ << "\n"; 
-	
-	return 0;
-}
-
-*/
-
 
 
 
