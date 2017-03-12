@@ -110,6 +110,7 @@ struct BoundingBox {
 		x_ = x; 
 		y_ = y;
 	}
+	// only works for axis aligned
 	bool collides(Point2D* p) {
 		if ((p->x_ > x_ - range_/2 && p->x_ < x_ + range_/2) &&
 			(p->y_ > y_ - range_/2 && p->y_ < y_ + range_/2))
@@ -118,6 +119,28 @@ struct BoundingBox {
 	}
 
 	double x_, y_, range_;
+};
+
+
+struct BoudingCircle {
+
+	BoudingCircle(double cx, double cy, double r) :
+		c_x_(cx), c_y_(cy), rad_(r)
+	{}
+	void reposition(double x, double y) {
+		c_x_ = x;
+		c_y_ = y;
+	}
+	bool collides(Point2D& p) {
+		double distance = std::sqrt(
+			std::pow(c_x_-p.x_,2.0)+ 
+			std::pow(c_y_-p.y_,2.0));
+		//if (distance < rad_) 
+		//	std::cout << p.x_ << " " << p.y_ << std::endl;
+		return distance < rad_;
+	}
+	
+	double c_x_, c_y_, rad_;
 };
 
 
@@ -495,6 +518,8 @@ private:
 	std::vector<Point2D> parse_coordinates(
 		int num, char* points[]);
 	
+	void set_bound(PlayerCc::Position2dProxy& pp);
+	
 	bool reached_coordinate(
 		PlayerCc::Position2dProxy& pp,
 		Point2D& destination);	
@@ -506,6 +531,7 @@ private:
 private:
 	std::vector<Point2D>::iterator coordinate_;
 	std::vector<Point2D> coordinates_;
+	BoudingCircle bounding_;
 	BoundingBox* bound_;
 	Map map_;
 
@@ -514,6 +540,7 @@ private:
 
 Robot::Robot(int num, char* points[]) :
 	coordinates_(this->parse_coordinates(num,points)),
+	bounding_(0.0,0.0,0.0),
 	bound_(new BoundingBox(0.0,0.0)),
 	map_(ENVIRONMENT)
 {}
@@ -557,8 +584,8 @@ void Robot::navigator(
 
 void Robot::pilot(PlayerCc::Position2dProxy& pp) {
 	
-	auto pnt = *coordinate_;
-	std::cout << pnt.x_ << " " << pnt.y_ << "\n";
+	//auto pnt = *coordinate_;
+	//std::cout << pnt.x_ << " " << pnt.y_ << "\n";
 	
 	if (!this->path_complete() && 
 		this->reached_coordinate(pp,*coordinate_)) {
@@ -593,7 +620,7 @@ void Robot::avoid_obstacle(
 	
 	// improve unobstructed function
 	
-	this->unobstructed(lp,*coordinate_,distance,angle);
+	//this->unobstructed(lp,*coordinate_,distance,angle);
 	
 	if (!this->unobstructed(lp,distance,angle)){
 		Vector2D velocity = 
@@ -669,7 +696,7 @@ bool Robot::unobstructed(
 		min = static_cast<int>(std::floor(
 			angle*RAD_TO_DEG+MIDDLE_LASER));
 	
-	std::cout << max << " " << min << std::endl;
+	//std::cout << max << " " << min << std::endl;
 	
 	if (max < MIDDLE_LASER-width_degrees ||
 		max >= MIDDLE_LASER+width_degrees ||
@@ -736,11 +763,29 @@ PointXY Robot::coordinate_to_pixel(Point2D& node) {
 }
 
 
+void Robot::set_bound(PlayerCc::Position2dProxy& pp) {
+	pp.RequestGeom();
+	bounding_ = BoudingCircle(
+		pp.GetXPos(),pp.GetYPos(),
+		pp.GetSize().sw);
+}
+
+
 bool Robot::reached_coordinate(
 	PlayerCc::Position2dProxy& pp,
 	Point2D& destination)
 {
+	bounding_.reposition(pp.GetXPos(),pp.GetYPos());
+	if (bounding_.collides(destination)) {
+		std::cout << "CIRCLE collides" << std::endl;
+	}
+	
 	bound_->reposition(pp.GetXPos(),pp.GetYPos());
+	if (bound_->collides(&destination)) {
+		std::cout << "BOX collides" << std::endl;
+	}
+	
+	
 	if(bound_->collides(&destination))
 		return true;
 	return false;
@@ -772,7 +817,7 @@ int Robot::loop() {
 		PlayerCc::Position2dProxy pp(&robot,INDEX);
 		PlayerCc::LaserProxy lp(&robot,INDEX);
 		robot.Read();
-		pp.RequestGeom();
+		this->set_bound(pp);
 		this->navigator(pp);
 		while (!this->path_complete()) {
 			robot.Read();
