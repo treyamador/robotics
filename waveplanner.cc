@@ -29,7 +29,7 @@ namespace {
 	const double DEG_TO_RAD = M_PI/180.0;	
 	const float MAP_X_COORDINATES = 44.0;
 	const float MAP_Y_COORDINATES = 18.0;
-	const double MIN_THRESHOLD = 0.4;
+	const double MIN_THRESHOLD = 0.5;
 	const int OBSTACLE_GROWTH = 18;
 	const double THRESHOLD = 1.0;
 	const double LASER_MAX = 8.0;
@@ -37,7 +37,7 @@ namespace {
 	const int MIDDLE_LASER = 90;
 	const double V_SLOW = 0.1;
 	const double V_MAX = 10.0;
-	const double FACTOR = 0.05;
+	const double FACTOR = 0.01;
 	const int DIRECTIONS = 8;
 	const int GOAL_RANGE = 2;
 	const int OCCUPIED = 1;
@@ -135,8 +135,6 @@ struct BoudingCircle {
 		double distance = std::sqrt(
 			std::pow(c_x_-p.x_,2.0)+ 
 			std::pow(c_y_-p.y_,2.0));
-		//if (distance < rad_) 
-		//	std::cout << p.x_ << " " << p.y_ << std::endl;
 		return distance < rad_;
 	}
 	
@@ -297,7 +295,7 @@ void Map::grow_pixels(
 			try {
 				map.at(r).at(c) = 1;
 			} catch (const std::out_of_range& err) {
-				// there is not much to do when catching this
+				// not much to catch here
 			}
 		}
 	}
@@ -532,7 +530,6 @@ private:
 	std::vector<Point2D>::iterator coordinate_;
 	std::vector<Point2D> coordinates_;
 	BoudingCircle bounding_;
-	BoundingBox* bound_;
 	Map map_;
 
 };
@@ -541,13 +538,11 @@ private:
 Robot::Robot(int num, char* points[]) :
 	coordinates_(this->parse_coordinates(num,points)),
 	bounding_(0.0,0.0,0.0),
-	bound_(new BoundingBox(0.0,0.0)),
 	map_(ENVIRONMENT)
 {}
 
 
 Robot::~Robot() {
-	delete bound_;
 	coordinates_.clear();
 	coordinates_.shrink_to_fit();
 }
@@ -573,20 +568,13 @@ void Robot::navigator(
 	} else {
 		this->path_unreachable();
 	}
-	
-	// print the path out...
-	//for (auto iter = coordinates_.begin(); 
-	//	iter != coordinates_.end(); ++iter)
-	//	std::cout << iter->x_ << " " << iter->y_ << std::endl;
-	
 }
 
 
 void Robot::pilot(PlayerCc::Position2dProxy& pp) {
-	
-	//auto pnt = *coordinate_;
-	//std::cout << pnt.x_ << " " << pnt.y_ << "\n";
-	
+	std::cout << 
+		coordinate_->x_ << " " << 
+		coordinate_->y_ << std::endl;
 	if (!this->path_complete() && 
 		this->reached_coordinate(pp,*coordinate_)) {
 		++coordinate_;
@@ -645,11 +633,8 @@ void Robot::avoid_obstacle(
 				this->calculate_vector(magnitude,radian);
 			summation += sum;
 		}
-		
-		// improve this
 		if (sizeable_margin) {
 			velocity += tangential;
-			//distance = std::min(V_MAX,velocity.magnitude());
 			distance = V_MAX;
 			angle = velocity.theta();
 		}
@@ -695,9 +680,6 @@ bool Robot::unobstructed(
 			angle*RAD_TO_DEG+MIDDLE_LASER)),
 		min = static_cast<int>(std::floor(
 			angle*RAD_TO_DEG+MIDDLE_LASER));
-	
-	//std::cout << max << " " << min << std::endl;
-	
 	if (max < MIDDLE_LASER-width_degrees ||
 		max >= MIDDLE_LASER+width_degrees ||
 		min < MIDDLE_LASER-width_degrees ||
@@ -767,7 +749,7 @@ void Robot::set_bound(PlayerCc::Position2dProxy& pp) {
 	pp.RequestGeom();
 	bounding_ = BoudingCircle(
 		pp.GetXPos(),pp.GetYPos(),
-		pp.GetSize().sw);
+		pp.GetSize().sw/2);
 }
 
 
@@ -776,17 +758,7 @@ bool Robot::reached_coordinate(
 	Point2D& destination)
 {
 	bounding_.reposition(pp.GetXPos(),pp.GetYPos());
-	if (bounding_.collides(destination)) {
-		std::cout << "CIRCLE collides" << std::endl;
-	}
-	
-	bound_->reposition(pp.GetXPos(),pp.GetYPos());
-	if (bound_->collides(&destination)) {
-		std::cout << "BOX collides" << std::endl;
-	}
-	
-	
-	if(bound_->collides(&destination))
+	if (bounding_.collides(destination))
 		return true;
 	return false;
 }
