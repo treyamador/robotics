@@ -29,15 +29,15 @@ namespace {
 	const double DEG_TO_RAD = M_PI/180.0;	
 	const float MAP_X_COORDINATES = 44.0;
 	const float MAP_Y_COORDINATES = 18.0;
-	const double MIN_THRESHOLD = 0.5;
+	const double MIN_THRESHOLD = 0.4;
 	const int OBSTACLE_GROWTH = 18;
 	const double THRESHOLD = 1.0;
 	const double LASER_MAX = 8.0;
 	const int COLOR_FACTOR = 200;
 	const int MIDDLE_LASER = 90;
-	const double V_SLOW = 0.1;
+	const double V_SLOW = 0.05;
 	const double V_MAX = 10.0;
-	const double FACTOR = 0.01;
+	const double FACTOR = 0.05;
 	const int DIRECTIONS = 8;
 	const int GOAL_RANGE = 2;
 	const int OCCUPIED = 1;
@@ -67,7 +67,8 @@ struct PointXY {
 	{}
 	int x_,y_;
 };
-typedef std::vector<PointXY>::iterator pIter;
+typedef std::vector<PointXY>::iterator pIterXY;
+typedef std::vector<Point2D>::iterator pIter2D;
 
 
 struct Vector2D {
@@ -421,7 +422,7 @@ bool Map::removable_node(PointXY& init, PointXY& end) {
 
 
 void Map::prune_path() {
-	pIter iter = path_.begin()+1;
+	pIterXY iter = path_.begin()+1;
 	while (iter != path_.end()-1)
 		if(this->removable_node(*(iter-1),*(iter+1)))
 			iter = path_.erase(iter);
@@ -507,9 +508,17 @@ private:
 		double angle
 	);
 	
+	void adjust_node(
+		PlayerCc::LaserProxy& lp,
+		std::vector<Point2D>& path,
+		pIter2D& node,
+		double distance,
+		double angle);
+	
 	Vector2D calculate_vector(
 		double magnitude,
 		double radians);
+	
 	PointXY coordinate_to_pixel(Point2D& node);
 	Point2D pixel_to_coordinate(PointXY& node);
 	
@@ -527,9 +536,9 @@ private:
 	
 
 private:
-	std::vector<Point2D>::iterator coordinate_;
 	std::vector<Point2D> coordinates_;
 	BoudingCircle bounding_;
+	pIter2D coordinate_;
 	Map map_;
 
 };
@@ -560,7 +569,7 @@ void Robot::navigator(
 		map_.output_wavefront(ENVIRONMENT,OUTPUT_FILEPATH,gradient);
 		std::vector<PointXY> path = 
 			map_.create_path(pos,goal,gradient);
-		for (std::vector<PointXY>::iterator iter = path.begin(); 
+		for (pIterXY iter = path.begin(); 
 			iter != path.end(); ++iter)
 			coordinates_.push_back(
 				this->pixel_to_coordinate(*iter));
@@ -586,6 +595,8 @@ void Robot::go_to_waypoint(
 	PlayerCc::Position2dProxy& pp,
 	double& distance, double& angle)
 {
+	// check if closer to next waypoint
+	// relative to current point
 	Point2D goal = *coordinate_;
 	double distance_y = goal.y_-pp.GetYPos();
 	double distance_x = goal.x_-pp.GetXPos();
@@ -605,11 +616,6 @@ void Robot::avoid_obstacle(
 	double& distance,
 	double& angle)
 {
-	
-	// improve unobstructed function
-	
-	//this->unobstructed(lp,*coordinate_,distance,angle);
-	
 	if (!this->unobstructed(lp,distance,angle)){
 		Vector2D velocity = 
 			this->calculate_vector(distance,angle),
@@ -633,12 +639,16 @@ void Robot::avoid_obstacle(
 				this->calculate_vector(magnitude,radian);
 			summation += sum;
 		}
-		if (sizeable_margin) {
+		if (sizeable_margin || distance < MIN_THRESHOLD) {
+			velocity = this->calculate_vector(
+				std::max(V_MAX/distance,V_MAX),angle);
 			velocity += tangential;
-			distance = V_MAX;
+			distance = std::min(V_MAX,distance);
+			
 			angle = velocity.theta();
 		}
 		else {
+			// turn towards open space nearest coordinate
 			angle = std::copysign(
 				1.0,summation.theta());
 			distance = V_SLOW;
@@ -692,6 +702,57 @@ bool Robot::unobstructed(
 		if (lp[i] < distance)
 			return false;
 	return true;
+}
+
+
+/*
+	for (int i = 0; i < count; ++i) {
+		double magnitude = lp[i];
+		double weighted = (magnitude != 0.0) ? 
+			FACTOR * (THRESHOLD / magnitude) : 0.0;
+		double radian = (i-MIDDLE_LASER)*DEG_TO_RAD;
+		Vector2D iterant = Vector2D(
+			weighted*std::cos(radian),
+			-weighted*std::sin(radian));
+		if (magnitude < MIN_THRESHOLD)
+			sizeable_margin = false;
+		else if (magnitude < THRESHOLD)
+			tangential += iterant;
+		Vector2D sum = 
+			this->calculate_vector(magnitude,radian);
+		summation += sum;
+	}
+*/
+
+
+// revise this!
+void Robot::adjust_node(
+	PlayerCc::LaserProxy& lp,
+	std::vector<Point2D>& path,
+	pIter2D& node,
+	double distance,
+	double angle)
+{
+	int degree = static_cast<int>(
+		std::round(angle*RAD_TO_DEG)+MIDDLE_LASER);
+	if (node+1 == path.end() || 
+		distance > THRESHOLD || 
+		degree < 0 || degree >= 180)
+		return;
+	int count = lp.GetCount();
+	int right = -1;
+	for (int i = 0; i < degree; ++i)
+		if (lp[i] < distance)
+			right = i;
+	int left = -1;
+	for (int i = count-1; i > degree; --i)
+		if (lp[i] < distance)
+			left = i;
+	
+	
+	
+	
+
 }
 
 
@@ -795,6 +856,7 @@ int Robot::loop() {
 			robot.Read();
 			double velocity = 0.0, angle = 0.0;
 			this->go_to_waypoint(pp,velocity,angle);
+			// adjust node here?
 			this->avoid_obstacle(lp,velocity,angle);
 			this->traverse(pp,velocity,angle);
 			this->pilot(pp);
