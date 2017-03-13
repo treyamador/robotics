@@ -38,7 +38,6 @@ namespace {
 	const double V_SLOW = 0.05;
 	const double V_MAX = 10.0;
 	const double FACTOR = 0.10;
-	// maybe make FACTOR = 0.05;
 	const int DIRECTIONS = 8;
 	const int GOAL_RANGE = 2;
 	const int OCCUPIED = 1;
@@ -154,25 +153,20 @@ public:
 	int wavefront(
 		PointXY& pos,
 		PointXY& destination);
-	
-	PointXY* propagate_wave(
-		PointXY*& perimeter,
-		int& size,
-		int gradient);
-	void swap_waves(
-		PointXY*& perimeter,
-		PointXY*& frontier,
-		int size);
-		
-	bool goal_reached(
-		PointXY*& perimeter,
-		int size,
-		PointXY& goal);
-	bool goal_unreachable(int perimeter_size);
-	
 	std::vector<PointXY> create_path(
 		PointXY& init,PointXY& dest,
 		int gradient);
+	
+	int height_pixel();
+	int width_pixel();
+	
+		
+private:
+	PointXY* propagate_wave(
+		PointXY*& perimeter,
+		int& size, int gradient);
+	
+	void gradient_descent(PointXY& point);
 	bool query_adjacent(
 		PointXY& loc, int grd,
 		int off_x, int off_y);
@@ -181,15 +175,21 @@ public:
 	void prune_path();
 	bool removable_node(PointXY& beg, PointXY& end);
 	
-	PointXY cast_point(Point2D& point);
-	void clear_perimeter(PointXY*& perimeter);
-	
-	bool contains_wall(int span, int row, int col);
-	void fill_grid(int span, int row, int col);
 	void grow_obstacles(int size_growth);
 	void grow_pixels(
 		std::vector<std::vector<double> >& map,
 		int row, int col);
+	void swap_waves(
+		PointXY*& perimeter,
+		PointXY*& frontier,
+		int size);
+	void clear_perimeter(PointXY*& perimeter);
+	
+	bool goal_reached(
+		PointXY*& perimeter,
+		int size,
+		PointXY& goal);
+	bool goal_unreachable(int perimeter_size);
 	
 	void read(const std::string& filepath);
 	void output_wavefront(
@@ -197,9 +197,7 @@ public:
 		const std::string& output_path,
 		int gradient);
 	
-	
-	int height_pixel();
-	int width_pixel();
+	PointXY cast_point(Point2D& point);
 	
 	
 private:
@@ -219,6 +217,190 @@ Map::Map(const std::string& filepath) {
 
 Map::~Map() {
 	
+}
+
+
+int Map::wavefront(PointXY& plyr, PointXY& dest) {
+	int gradient = 1, size = 1;
+	this->wave_[dest.y_][dest.x_] = gradient;
+	PointXY* perim = new PointXY[size];
+	perim[size-1] = PointXY(dest.x_,dest.y_);
+	while (!this->goal_reached(perim,size,plyr)) {
+		int perim_s = size;
+		PointXY* frontier = this->propagate_wave(
+			perim,size,++gradient);
+		if (this->goal_unreachable(perim_s))
+			return -1;
+		this->swap_waves(perim,frontier,size);
+	}
+	return gradient;
+}
+
+
+std::vector<PointXY> Map::create_path(
+	PointXY& init, PointXY& dest, int gradient)
+{
+	path_ = { PointXY(init.x_,init.y_) };
+	while (wave_[path_.back().y_][path_.back().x_] != 1)
+		this->gradient_descent(path_.back());
+	this->output_wavefront(ENVIRONMENT,OUTPUT_FILEPATH,gradient);
+	this->prune_path();
+	return path_;
+}
+
+
+PointXY* Map::propagate_wave(
+	PointXY*& perimeter,
+	int& size,
+	int gradient)
+{
+	int iter = 0;
+	PointXY* frontier = new PointXY[DIRECTIONS*size];
+	for (int p = 0; p < size; ++p) {
+		for (int i = 0; i < ADJ*ADJ; ++i) {
+			int r = (perimeter[p].y_-1)+i/ADJ,
+				c = (perimeter[p].x_-1)+i%ADJ;
+			if (map_[r][c] == 0 && wave_[r][c] == 0) {
+				frontier[iter++] = PointXY(c,r);
+				wave_[r][c] = gradient;
+			}
+		}
+	}
+	size = iter;
+	return frontier;
+}
+
+
+void Map::gradient_descent(PointXY& p) {
+	int grd = wave_[p.y_][p.x_];
+	if (this->query_adjacent(p,grd,1,0))
+		this->adjust_point(p,1,0);
+	else if (this->query_adjacent(p,grd,-1,0))
+		this->adjust_point(p,-1,0);
+	else if (this->query_adjacent(p,grd,0,1))
+		this->adjust_point(p,0,1);
+	else if (this->query_adjacent(p,grd,0,-1))
+		this->adjust_point(p,0,-1);
+	else if (this->query_adjacent(p,grd,1,1))
+		this->adjust_point(p,1,1);
+	else if (this->query_adjacent(p,grd,-1,1))
+		this->adjust_point(p,-1,1);
+	else if (this->query_adjacent(p,grd,1,-1))
+		this->adjust_point(p,1,-1);
+	else if (this->query_adjacent(p,grd,-1,-1))
+		this->adjust_point(p,-1,-1);
+	else
+		this->adjust_point(p,-1,-1);
+}
+
+
+bool Map::query_adjacent(
+	PointXY& loc, int grd,
+	int off_x, int off_y)
+{
+	return
+		wave_[loc.y_+off_y][loc.x_+off_x] < grd &&
+		wave_[loc.y_+off_y][loc.x_+off_x] > 0 &&
+		map_[loc.y_+off_y][loc.x_+off_x] != 1;
+}
+
+
+void Map::adjust_point(PointXY& loc, int off_x, int off_y) {
+	path_.push_back(PointXY(
+		loc.x_+off_x,
+		loc.y_+off_y));
+}
+
+
+void Map::prune_path() {
+	pIterXY iter = path_.begin()+1;
+	while (iter != path_.end()-1)
+		if(this->removable_node(*(iter-1),*(iter+1)))
+			iter = path_.erase(iter);
+		else
+			++iter;
+}
+
+
+bool Map::removable_node(PointXY& init, PointXY& end) {
+	double delta_x = static_cast<double>(end.x_-init.x_),
+		delta_y = static_cast<double>(end.y_-init.y_);
+	if (delta_y == 0.0 || delta_x == 0.0) 
+		return true;
+	double nrml_x = std::copysign(delta_x/delta_y,delta_x),
+		nrml_y = std::copysign(delta_y/delta_y,delta_y);
+	int iter = static_cast<int>(std::ceil(std::fabs(delta_y)));
+	for (int i = 0; i < iter; ++i) {
+		int r = static_cast<int>(init.y_+i*nrml_y),
+			c_f = static_cast<int>(init.x_+std::floor(i*nrml_x)),
+			c_c = static_cast<int>(init.x_+std::ceil(i*nrml_x));
+		if (wave_[r][c_f] == 0 || wave_[r][c_c] == 0)
+			return false;
+	}
+	return true;
+}
+
+
+void Map::grow_obstacles(int span) {
+	std::vector<std::vector<double> > map = map_;
+	for (size_t r = 0; r < map_.size(); ++r)
+		for (size_t c = 0; c < map_[r].size(); ++c)
+			if (map_[r][c] == 1)
+				this->grow_pixels(map,r,c);
+	map_ = map;
+}
+
+
+void Map::grow_pixels(
+	std::vector<std::vector<double> >& map,
+	int row, int col)
+{
+	int offset = OBSTACLE_GROWTH/2;
+	for (int r = row-offset; r < row+offset; ++r) {
+		for (int c = col-offset; c < col+offset; ++c) {
+			try {
+				map.at(r).at(c) = 1;
+			} catch (const std::out_of_range& err) {
+				// not much to catch here
+			}
+		}
+	}
+}
+
+
+void Map::swap_waves(
+	PointXY*& perimeter, 
+	PointXY*& frontier, 
+	int size)
+{
+	this->clear_perimeter(perimeter);
+	perimeter = new PointXY[size];
+	for (int i = 0; i < size; ++i)
+		perimeter[i] = frontier[i];
+	this->clear_perimeter(frontier);
+}
+
+
+void Map::clear_perimeter(PointXY*& perimeter) {
+	if (perimeter != nullptr) {
+		delete [] perimeter;
+		perimeter = nullptr;
+	}
+}
+
+
+bool Map::goal_reached(PointXY*& perimeter, int size, PointXY& goal) {
+	for (int i = 0; i < size; ++i)
+		if (perimeter[i].x_ == goal.x_ && perimeter[i].y_ == goal.y_)
+			return true;
+	return false;
+}
+
+
+bool Map::goal_unreachable(int perimeter_size) {
+	if (perimeter_size == 0)
+		return true;
+	return false;
 }
 
 
@@ -274,193 +456,13 @@ void Map::output_wavefront(
 }
 
 
-bool Map::contains_wall(int span, int row, int col) {
-	for (int r = row; r < row+span; ++r)
-		for (int c = col; c < col+span; ++c)
-			if (map_[r][c] == 1)
-				return true;
-	return false;
+int Map::width_pixel() {
+	return static_cast<int>(map_[0].size());
 }
 
 
-void Map::fill_grid(int span, int row, int col) {
-	for (int r = row; r < row+span; ++r)
-		for (int c = col; c < col+span; ++c)
-			map_[r][c] = 1;
-}
-
-
-void Map::grow_obstacles(int span) {
-	std::vector<std::vector<double> > map = map_;
-	for (size_t r = 0; r < map_.size(); ++r)
-		for (size_t c = 0; c < map_[r].size(); ++c)
-			if (map_[r][c] == 1)
-				this->grow_pixels(map,r,c);
-	map_ = map;
-}
-
-
-void Map::grow_pixels(
-	std::vector<std::vector<double> >& map,
-	int row, int col)
-{
-	int offset = OBSTACLE_GROWTH/2;
-	for (int r = row-offset; r < row+offset; ++r) {
-		for (int c = col-offset; c < col+offset; ++c) {
-			try {
-				map.at(r).at(c) = 1;
-			} catch (const std::out_of_range& err) {
-				// not much to catch here
-			}
-		}
-	}
-}
-
-
-PointXY* Map::propagate_wave(
-	PointXY*& perimeter,
-	int& size,
-	int gradient)
-{
-	int iter = 0;
-	PointXY* frontier = new PointXY[DIRECTIONS*size];
-	for (int p = 0; p < size; ++p) {
-		for (int i = 0; i < ADJ*ADJ; ++i) {
-			int r = (perimeter[p].y_-1)+i/ADJ,
-				c = (perimeter[p].x_-1)+i%ADJ;
-			if (map_[r][c] == 0 && wave_[r][c] == 0) {
-				frontier[iter++] = PointXY(c,r);
-				wave_[r][c] = gradient;
-			}
-		}
-	}
-	size = iter;
-	return frontier;
-}
-
-
-void Map::swap_waves(
-	PointXY*& perimeter, 
-	PointXY*& frontier, 
-	int size)
-{
-	this->clear_perimeter(perimeter);
-	perimeter = new PointXY[size];
-	for (int i = 0; i < size; ++i)
-		perimeter[i] = frontier[i];
-	this->clear_perimeter(frontier);
-}
-
-
-
-bool Map::goal_reached(PointXY*& perimeter, int size, PointXY& goal) {
-	for (int i = 0; i < size; ++i)
-		if (perimeter[i].x_ == goal.x_ && perimeter[i].y_ == goal.y_)
-			return true;
-	return false;
-}
-
-
-bool Map::goal_unreachable(int perimeter_size) {
-	if (perimeter_size == 0)
-		return true;
-	return false;
-}
-
-
-std::vector<PointXY> Map::create_path(
-	PointXY& init, PointXY& dest, int gradient)
-{
-	path_ = { PointXY(init.x_,init.y_) };
-	while (wave_[path_.back().y_][path_.back().x_] != 1) {
-		PointXY p = path_.back();
-		int grd = wave_[p.y_][p.x_];
-		if (this->query_adjacent(p,grd,1,0))
-			this->adjust_point(p,1,0);
-		else if (this->query_adjacent(p,grd,-1,0))
-			this->adjust_point(p,-1,0);
-		else if (this->query_adjacent(p,grd,0,1))
-			this->adjust_point(p,0,1);
-		else if (this->query_adjacent(p,grd,0,-1))
-			this->adjust_point(p,0,-1);
-		else if (this->query_adjacent(p,grd,1,1))
-			this->adjust_point(p,1,1);
-		else if (this->query_adjacent(p,grd,-1,1))
-			this->adjust_point(p,-1,1);
-		else if (this->query_adjacent(p,grd,1,-1))
-			this->adjust_point(p,1,-1);
-		else if (this->query_adjacent(p,grd,-1,-1))
-			this->adjust_point(p,-1,-1);
-		else
-			this->adjust_point(p,-1,-1);
-	}
-	this->output_wavefront(ENVIRONMENT,OUTPUT_FILEPATH,gradient);
-	this->prune_path();
-	return path_;
-}
-
-
-bool Map::query_adjacent(
-	PointXY& loc, int grd,
-	int off_x, int off_y)
-{
-	return
-		wave_[loc.y_+off_y][loc.x_+off_x] < grd &&
-		wave_[loc.y_+off_y][loc.x_+off_x] > 0 &&
-		map_[loc.y_+off_y][loc.x_+off_x] != 1;
-}
-
-
-void Map::adjust_point(PointXY& loc, int off_x, int off_y) {
-	path_.push_back(PointXY(
-		loc.x_+off_x,
-		loc.y_+off_y));
-}
-
-
-bool Map::removable_node(PointXY& init, PointXY& end) {
-	double delta_x = static_cast<double>(end.x_-init.x_),
-		delta_y = static_cast<double>(end.y_-init.y_);
-	if (delta_y == 0.0 || delta_x == 0.0) 
-		return true;
-	double nrml_x = std::copysign(delta_x/delta_y,delta_x),
-		nrml_y = std::copysign(delta_y/delta_y,delta_y);
-	int iter = static_cast<int>(std::ceil(std::fabs(delta_y)));
-	for (int i = 0; i < iter; ++i) {
-		int r = static_cast<int>(init.y_+i*nrml_y),
-			c_f = static_cast<int>(init.x_+std::floor(i*nrml_x)),
-			c_c = static_cast<int>(init.x_+std::ceil(i*nrml_x));
-		if (wave_[r][c_f] == 0 || wave_[r][c_c] == 0)
-			return false;
-	}
-	return true;
-}
-
-
-void Map::prune_path() {
-	pIterXY iter = path_.begin()+1;
-	while (iter != path_.end()-1)
-		if(this->removable_node(*(iter-1),*(iter+1)))
-			iter = path_.erase(iter);
-		else
-			++iter;
-}
-
-
-int Map::wavefront(PointXY& plyr, PointXY& dest) {
-	int gradient = 1, size = 1;
-	this->wave_[dest.y_][dest.x_] = gradient;
-	PointXY* perim = new PointXY[size];
-	perim[size-1] = PointXY(dest.x_,dest.y_);
-	while (!this->goal_reached(perim,size,plyr)) {
-		int perim_s = size;
-		PointXY* frontier = this->propagate_wave(
-			perim,size,++gradient);
-		if (this->goal_unreachable(perim_s))
-			return -1;
-		this->swap_waves(perim,frontier,size);
-	}
-	return gradient;
+int Map::height_pixel() {
+	return static_cast<int>(map_.size());
 }
 
 
@@ -471,22 +473,6 @@ PointXY Map::cast_point(Point2D& point) {
 }
 
 
-void Map::clear_perimeter(PointXY*& perimeter) {
-	if (perimeter != nullptr) {
-		delete [] perimeter;
-		perimeter = nullptr;
-	}
-}
-
-
-int Map::width_pixel() {
-	return static_cast<int>(map_[0].size());
-}
-
-
-int Map::height_pixel() {
-	return static_cast<int>(map_.size());
-}
 
 
 class Robot {
@@ -512,24 +498,31 @@ private:
 		PlayerCc::Position2dProxy& pp,
 		double velocity, double angle);
 	
+	void slow_approach(
+		double& distance, double& angle,
+		double sign);
 	bool unobstructed(
 		PlayerCc::LaserProxy& lp,
 		double velocity,
 		double angle);
-	
 	bool goal_behind(double angle);
 	
-	Vector2D calculate_vector(
-		double magnitude,
-		double radians);
+	void tangent_field(
+		Vector2D& tangent,
+		double& distance, double& angle);
 	
-	PointXY coordinate_to_pixel(Point2D& node);
-	Point2D pixel_to_coordinate(PointXY& node);
+	Vector2D calculate_vector(
+		double magnitude, double radians);
+	
+	Vector2D perpendicular(
+		double magnitude, int degree);
 	
 	std::vector<Point2D> parse_coordinates(
 		int num, char* points[]);
-	
 	void set_bound(PlayerCc::Position2dProxy& pp);
+	
+	PointXY coordinate_to_pixel(Point2D& node);
+	Point2D pixel_to_coordinate(PointXY& node);
 	
 	bool reached_coordinate(
 		PlayerCc::Position2dProxy& pp,
@@ -544,6 +537,7 @@ private:
 	BoudingCircle bounding_;
 	pIter2D coordinate_;
 	Map map_;
+
 
 };
 
@@ -584,9 +578,6 @@ void Robot::navigator(
 
 
 void Robot::pilot(PlayerCc::Position2dProxy& pp) {
-	//std::cout << 
-	//	coordinate_->x_ << " " << 
-	//	coordinate_->y_ << std::endl;
 	if (!this->path_complete() && 
 		this->reached_coordinate(pp,*coordinate_))
 		++coordinate_;
@@ -617,38 +608,22 @@ void Robot::avoid_obstacle(
 	double& angle)
 {
 	if (this->goal_behind(angle)) {
-		distance = V_SLOW;
-		angle = std::copysign(1.0,-angle);
+		this->slow_approach(distance,angle,-1.0);
 	} else if (!this->unobstructed(lp,distance,angle)){
-		Vector2D velocity = 
-			this->calculate_vector(distance,angle),
-			tangential = Vector2D(0.0,0.0);
+		Vector2D tangential = Vector2D(0.0,0.0);
 		int count = lp.GetCount();
-		bool sizeable_margin = true;
-		for (int i = 0; i < count; ++i) {
+		bool margin = true;
+		for (int i = 0; i < count && margin; ++i) {
 			double magnitude = lp[i];
-			double weighted = (magnitude != 0.0) ? 
-				FACTOR * (THRESHOLD / magnitude) : 0.0;
-			double radian = (i-MIDDLE_LASER)*DEG_TO_RAD;
-			Vector2D iterant = Vector2D(
-				weighted*std::cos(radian),
-				-weighted*std::sin(radian));
 			if (magnitude < MIN_THRESHOLD)
-				sizeable_margin = false;
+				margin = false;
 			else if (magnitude < THRESHOLD)
-				tangential += iterant;
+				tangential += this->perpendicular(magnitude,i);
 		}
-		if (sizeable_margin || distance < MIN_THRESHOLD) {
-			velocity = this->calculate_vector(
-				std::max(V_MAX/distance,V_MAX),angle);
-			velocity += tangential;
-			distance = std::min(V_MAX,distance);
-			angle = velocity.theta();
-		} else {
-			angle = std::copysign(
-				1.0,angle);
-			distance = V_SLOW;
-		}
+		if (margin || distance < MIN_THRESHOLD)
+			this->tangent_field(tangential,distance,angle);
+		else
+			this->slow_approach(distance,angle,1.0);
 	}
 }
 
@@ -660,6 +635,13 @@ void Robot::traverse(
 	pp.SetSpeed(velocity,angle);
 }
 
+
+void Robot::slow_approach(
+	double& distance, double& angle, double sign)
+{
+	angle = std::copysign(1.0,sign*angle);
+	distance = V_SLOW;
+}
 
 
 bool Robot::unobstructed(
@@ -683,6 +665,18 @@ bool Robot::goal_behind(double angle) {
 }
 
 
+void Robot::tangent_field(
+	Vector2D& tangential,
+	double& distance, double& angle)
+{
+	Vector2D velocity = this->calculate_vector(
+		std::max(V_MAX/distance,V_MAX),angle);
+	velocity += tangential;
+	distance = std::min(V_MAX,distance);
+	angle = velocity.theta();
+}
+
+
 Vector2D Robot::calculate_vector(
 	double magnitude,
 	double radians) 
@@ -690,6 +684,16 @@ Vector2D Robot::calculate_vector(
 	return Vector2D(
 		magnitude * std::cos(radians),
 		magnitude * std::sin(radians));
+}
+
+
+Vector2D Robot::perpendicular(double magnitude, int i) {
+	double weighted = (magnitude != 0.0) ? 
+		FACTOR * (THRESHOLD / magnitude) : 0.0;
+	double radian = (i-MIDDLE_LASER)*DEG_TO_RAD;
+	return Vector2D(
+		weighted*std::cos(radian),
+		-weighted*std::sin(radian));
 }
 
 
@@ -713,6 +717,14 @@ std::vector<Point2D> Robot::parse_coordinates(
 }
 
 
+void Robot::set_bound(PlayerCc::Position2dProxy& pp) {
+	pp.RequestGeom();
+	bounding_ = BoudingCircle(
+		pp.GetXPos(),pp.GetYPos(),
+		pp.GetSize().sw/2);
+}
+
+
 Point2D Robot::pixel_to_coordinate(PointXY& node) {
 	return Point2D(
 		(MAP_X_COORDINATES/map_.width_pixel())*node.x_ -
@@ -728,14 +740,6 @@ PointXY Robot::coordinate_to_pixel(Point2D& node) {
 			(map_.width_pixel()/MAP_X_COORDINATES)*node.x_)),
 		static_cast<int>(std::round(map_.height_pixel()/2.0 -
 			(map_.height_pixel()/MAP_Y_COORDINATES)*node.y_)));
-}
-
-
-void Robot::set_bound(PlayerCc::Position2dProxy& pp) {
-	pp.RequestGeom();
-	bounding_ = BoudingCircle(
-		pp.GetXPos(),pp.GetYPos(),
-		pp.GetSize().sw/2);
 }
 
 
@@ -800,7 +804,6 @@ int main(int argc, char* argv[]) {
 	} else {
 		return -1;
 	}
-	return 0;
 }
 
 
