@@ -145,7 +145,7 @@ struct BoudingCircle {
 
 class Map {
 
-	
+
 public:
 	Map(const std::string& filepath);
 	~Map();
@@ -252,11 +252,24 @@ void Map::output_wavefront(
 	std::ofstream out_file(output_path);
 	out_file << header << std::endl;
 	out_file << width << " " << height << " " << max_val << std::endl;
-	for (size_t r = 0; r < wave_.size(); ++r)
-		for (size_t c = 0; c < wave_[r].size(); ++c)
-			out_file << (map_[r][c] == 1 || wave_[r][c] == 0 ? 
-				static_cast<char>(map_[r][c]-1) : 
-				static_cast<char>(wave_[r][c]*COLOR_FACTOR/max_grd));
+	for (size_t r = 0; r < wave_.size(); ++r) {
+		for (size_t c = 0; c < wave_[r].size(); ++c) {
+			bool path_marked = false;
+			for (pIterXY iter = path_.begin(); 
+				iter != path_.end() && !path_marked; ++iter) {
+				if (iter->x_ == c && iter->y_ == r) {
+					out_file << static_cast<char>(-1);
+					path_marked = true;
+				}
+				
+			}
+			if (!path_marked)
+				out_file << (map_[r][c] == 1 || wave_[r][c] == 0 ? 
+					static_cast<char>(map_[r][c]-1) : 
+					static_cast<char>(
+						wave_[r][c]*COLOR_FACTOR/max_grd));
+		}
+	}
 }
 
 
@@ -361,24 +374,60 @@ std::vector<PointXY> Map::create_path(
 	while (wave_[path_.back().y_][path_.back().x_] != 1) {
 		PointXY p = path_.back();
 		int grd = wave_[p.y_][p.x_];
-		if (this->query_adjacent(p,grd,1,0))
+		
+		
+		
+		
+		
+		if (this->query_adjacent(p,grd,1,0)) {
 			this->adjust_point(p,1,0);
-		else if (this->query_adjacent(p,grd,-1,0))
-			this->adjust_point(p,-1,0);
-		else if (this->query_adjacent(p,grd,0,1))
+			//std::cout << "right\n" << std::endl;
+		}
+		else if (this->query_adjacent(p,grd,-1,0)) {
+			this->adjust_point(p,-1,0);	
+			//std::cout << "left\n" << std::endl;
+		}
+		else if (this->query_adjacent(p,grd,0,1)) {
 			this->adjust_point(p,0,1);
-		else if (this->query_adjacent(p,grd,0,-1))
+			//std::cout << "down\n" << std::endl;
+		}
+		else if (this->query_adjacent(p,grd,0,-1)) {
 			this->adjust_point(p,0,-1);
-		else if (this->query_adjacent(p,grd,1,1))
+			//std::cout << "up\n" << std::endl;
+		}
+		else if (this->query_adjacent(p,grd,1,1)) {
 			this->adjust_point(p,1,1);
-		else if (this->query_adjacent(p,grd,-1,1))
+			//std::cout << "down right\n" << std::endl;
+		}
+		else if (this->query_adjacent(p,grd,-1,1)) {
 			this->adjust_point(p,-1,1);
-		else if (this->query_adjacent(p,grd,1,-1))
+			//std::cout << "down left\n" << std::endl;
+		}
+		else if (this->query_adjacent(p,grd,1,-1)) {
 			this->adjust_point(p,1,-1);
-		else if (this->query_adjacent(p,grd,-1,-1))
+			//std::cout << "up left\n" << std::endl;
+		}
+		else if (this->query_adjacent(p,grd,-1,-1)) {
 			this->adjust_point(p,-1,-1);
-		else
-			this->adjust_point(p,1,1);
+			//std::cout << "up right\n" << std::endl;
+		}
+		else {
+			// add move in direction fxn!
+			//this->decide_direction(path_.back(),dest);
+			//std::cout << p.x_ << " " << p.y_ << std::endl;
+			
+			
+			std::cout << "   " << 
+				wave_[p.x_][p.y_-1] << "   " << std::endl;
+			std::cout << 
+				wave_[p.x_-1][p.y_] << "   " << 
+				wave_[p.x_ + 1][p.y_] << std::endl;
+			std::cout << "   " << 
+				wave_[p.x_][p.y_+1] << "\n" << std::endl;
+			//break;
+			//this->adjust_point(p,-1,-1);
+		}
+		
 	}
 	this->prune_path();
 	return path_;
@@ -389,8 +438,9 @@ bool Map::query_adjacent(
 	PointXY& loc, int grd,
 	int off_x, int off_y)
 {
-	return 
-		wave_[loc.y_+off_y][loc.x_+off_x] < grd && 
+	return
+		wave_[loc.y_+off_y][loc.x_+off_x] < grd &&
+		wave_[loc.y_+off_y][loc.x_+off_x] > 0 &&
 		map_[loc.y_+off_y][loc.x_+off_x] != 1;
 }
 
@@ -422,6 +472,14 @@ bool Map::removable_node(PointXY& init, PointXY& end) {
 
 
 void Map::prune_path() {
+	
+	//pIterXY iter = path_.begin()+1;
+	//while (iter != path_.end()-1)
+	//	if (wave_[iter->y_][iter->x_] == 0)
+	//		iter = path_.erase(iter);
+	//	else
+	//		++iter;
+	
 	pIterXY iter = path_.begin()+1;
 	while (iter != path_.end()-1)
 		if(this->removable_node(*(iter-1),*(iter+1)))
@@ -566,9 +624,9 @@ void Robot::navigator(
 	coordinates_.clear();
 	int gradient = map_.wavefront(pos,goal);
 	if (gradient != -1) {
-		map_.output_wavefront(ENVIRONMENT,OUTPUT_FILEPATH,gradient);
 		std::vector<PointXY> path = 
 			map_.create_path(pos,goal,gradient);
+		map_.output_wavefront(ENVIRONMENT,OUTPUT_FILEPATH,gradient);
 		for (pIterXY iter = path.begin(); 
 			iter != path.end(); ++iter)
 			coordinates_.push_back(
@@ -644,7 +702,6 @@ void Robot::avoid_obstacle(
 				std::max(V_MAX/distance,V_MAX),angle);
 			velocity += tangential;
 			distance = std::min(V_MAX,distance);
-			
 			angle = velocity.theta();
 		}
 		else {
@@ -705,26 +762,6 @@ bool Robot::unobstructed(
 }
 
 
-/*
-	for (int i = 0; i < count; ++i) {
-		double magnitude = lp[i];
-		double weighted = (magnitude != 0.0) ? 
-			FACTOR * (THRESHOLD / magnitude) : 0.0;
-		double radian = (i-MIDDLE_LASER)*DEG_TO_RAD;
-		Vector2D iterant = Vector2D(
-			weighted*std::cos(radian),
-			-weighted*std::sin(radian));
-		if (magnitude < MIN_THRESHOLD)
-			sizeable_margin = false;
-		else if (magnitude < THRESHOLD)
-			tangential += iterant;
-		Vector2D sum = 
-			this->calculate_vector(magnitude,radian);
-		summation += sum;
-	}
-*/
-
-
 // revise this!
 void Robot::adjust_node(
 	PlayerCc::LaserProxy& lp,
@@ -748,11 +785,6 @@ void Robot::adjust_node(
 	for (int i = count-1; i > degree; --i)
 		if (lp[i] < distance)
 			left = i;
-	
-	
-	
-	
-
 }
 
 
