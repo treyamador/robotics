@@ -37,7 +37,8 @@ namespace {
 	const int MIDDLE_LASER = 90;
 	const double V_SLOW = 0.05;
 	const double V_MAX = 10.0;
-	const double FACTOR = 0.05;
+	const double FACTOR = 0.10;
+	// maybe make FACTOR = 0.05;
 	const int DIRECTIONS = 8;
 	const int GOAL_RANGE = 2;
 	const int OCCUPIED = 1;
@@ -374,61 +375,26 @@ std::vector<PointXY> Map::create_path(
 	while (wave_[path_.back().y_][path_.back().x_] != 1) {
 		PointXY p = path_.back();
 		int grd = wave_[p.y_][p.x_];
-		
-		
-		
-		
-		
-		if (this->query_adjacent(p,grd,1,0)) {
+		if (this->query_adjacent(p,grd,1,0))
 			this->adjust_point(p,1,0);
-			//std::cout << "right\n" << std::endl;
-		}
-		else if (this->query_adjacent(p,grd,-1,0)) {
-			this->adjust_point(p,-1,0);	
-			//std::cout << "left\n" << std::endl;
-		}
-		else if (this->query_adjacent(p,grd,0,1)) {
+		else if (this->query_adjacent(p,grd,-1,0))
+			this->adjust_point(p,-1,0);
+		else if (this->query_adjacent(p,grd,0,1))
 			this->adjust_point(p,0,1);
-			//std::cout << "down\n" << std::endl;
-		}
-		else if (this->query_adjacent(p,grd,0,-1)) {
+		else if (this->query_adjacent(p,grd,0,-1))
 			this->adjust_point(p,0,-1);
-			//std::cout << "up\n" << std::endl;
-		}
-		else if (this->query_adjacent(p,grd,1,1)) {
+		else if (this->query_adjacent(p,grd,1,1))
 			this->adjust_point(p,1,1);
-			//std::cout << "down right\n" << std::endl;
-		}
-		else if (this->query_adjacent(p,grd,-1,1)) {
+		else if (this->query_adjacent(p,grd,-1,1))
 			this->adjust_point(p,-1,1);
-			//std::cout << "down left\n" << std::endl;
-		}
-		else if (this->query_adjacent(p,grd,1,-1)) {
+		else if (this->query_adjacent(p,grd,1,-1))
 			this->adjust_point(p,1,-1);
-			//std::cout << "up left\n" << std::endl;
-		}
-		else if (this->query_adjacent(p,grd,-1,-1)) {
+		else if (this->query_adjacent(p,grd,-1,-1))
 			this->adjust_point(p,-1,-1);
-			//std::cout << "up right\n" << std::endl;
-		}
-		else {
-			// add move in direction fxn!
-			//this->decide_direction(path_.back(),dest);
-			//std::cout << p.x_ << " " << p.y_ << std::endl;
-			
-			
-			std::cout << "   " << 
-				wave_[p.x_][p.y_-1] << "   " << std::endl;
-			std::cout << 
-				wave_[p.x_-1][p.y_] << "   " << 
-				wave_[p.x_ + 1][p.y_] << std::endl;
-			std::cout << "   " << 
-				wave_[p.x_][p.y_+1] << "\n" << std::endl;
-			//break;
-			//this->adjust_point(p,-1,-1);
-		}
-		
+		else
+			this->adjust_point(p,-1,-1);
 	}
+	this->output_wavefront(ENVIRONMENT,OUTPUT_FILEPATH,gradient);
 	this->prune_path();
 	return path_;
 }
@@ -472,14 +438,6 @@ bool Map::removable_node(PointXY& init, PointXY& end) {
 
 
 void Map::prune_path() {
-	
-	//pIterXY iter = path_.begin()+1;
-	//while (iter != path_.end()-1)
-	//	if (wave_[iter->y_][iter->x_] == 0)
-	//		iter = path_.erase(iter);
-	//	else
-	//		++iter;
-	
 	pIterXY iter = path_.begin()+1;
 	while (iter != path_.end()-1)
 		if(this->removable_node(*(iter-1),*(iter+1)))
@@ -558,20 +516,8 @@ private:
 		PlayerCc::LaserProxy& lp,
 		double velocity,
 		double angle);
-		
-	bool unobstructed(
-		PlayerCc::LaserProxy& lp,
-		Point2D& goal,
-		double distance,
-		double angle
-	);
 	
-	void adjust_node(
-		PlayerCc::LaserProxy& lp,
-		std::vector<Point2D>& path,
-		pIter2D& node,
-		double distance,
-		double angle);
+	bool goal_behind(double angle);
 	
 	Vector2D calculate_vector(
 		double magnitude,
@@ -626,7 +572,6 @@ void Robot::navigator(
 	if (gradient != -1) {
 		std::vector<PointXY> path = 
 			map_.create_path(pos,goal,gradient);
-		map_.output_wavefront(ENVIRONMENT,OUTPUT_FILEPATH,gradient);
 		for (pIterXY iter = path.begin(); 
 			iter != path.end(); ++iter)
 			coordinates_.push_back(
@@ -639,13 +584,12 @@ void Robot::navigator(
 
 
 void Robot::pilot(PlayerCc::Position2dProxy& pp) {
-	std::cout << 
-		coordinate_->x_ << " " << 
-		coordinate_->y_ << std::endl;
+	//std::cout << 
+	//	coordinate_->x_ << " " << 
+	//	coordinate_->y_ << std::endl;
 	if (!this->path_complete() && 
-		this->reached_coordinate(pp,*coordinate_)) {
+		this->reached_coordinate(pp,*coordinate_))
 		++coordinate_;
-	}
 }
 
 
@@ -653,8 +597,6 @@ void Robot::go_to_waypoint(
 	PlayerCc::Position2dProxy& pp,
 	double& distance, double& angle)
 {
-	// check if closer to next waypoint
-	// relative to current point
 	Point2D goal = *coordinate_;
 	double distance_y = goal.y_-pp.GetYPos();
 	double distance_x = goal.x_-pp.GetXPos();
@@ -674,11 +616,13 @@ void Robot::avoid_obstacle(
 	double& distance,
 	double& angle)
 {
-	if (!this->unobstructed(lp,distance,angle)){
+	if (this->goal_behind(angle)) {
+		distance = V_SLOW;
+		angle = std::copysign(1.0,-angle);
+	} else if (!this->unobstructed(lp,distance,angle)){
 		Vector2D velocity = 
 			this->calculate_vector(distance,angle),
-			tangential = Vector2D(0.0,0.0),
-			summation = Vector2D(0.0,0.0);
+			tangential = Vector2D(0.0,0.0);
 		int count = lp.GetCount();
 		bool sizeable_margin = true;
 		for (int i = 0; i < count; ++i) {
@@ -693,9 +637,6 @@ void Robot::avoid_obstacle(
 				sizeable_margin = false;
 			else if (magnitude < THRESHOLD)
 				tangential += iterant;
-			Vector2D sum = 
-				this->calculate_vector(magnitude,radian);
-			summation += sum;
 		}
 		if (sizeable_margin || distance < MIN_THRESHOLD) {
 			velocity = this->calculate_vector(
@@ -703,11 +644,9 @@ void Robot::avoid_obstacle(
 			velocity += tangential;
 			distance = std::min(V_MAX,distance);
 			angle = velocity.theta();
-		}
-		else {
-			// turn towards open space nearest coordinate
+		} else {
 			angle = std::copysign(
-				1.0,summation.theta());
+				1.0,angle);
 			distance = V_SLOW;
 		}
 	}
@@ -737,54 +676,10 @@ bool Robot::unobstructed(
 }
 
 
-// work this out later!
-bool Robot::unobstructed(
-	PlayerCc::LaserProxy& lp, Point2D& goal,
-	double distance, double angle)
-{
-	const int width_degrees = 8;
-	int max = static_cast<int>(std::ceil(
-			angle*RAD_TO_DEG+MIDDLE_LASER)),
-		min = static_cast<int>(std::floor(
-			angle*RAD_TO_DEG+MIDDLE_LASER));
-	if (max < MIDDLE_LASER-width_degrees ||
-		max >= MIDDLE_LASER+width_degrees ||
-		min < MIDDLE_LASER-width_degrees ||
-		min >= MIDDLE_LASER+width_degrees)
-		return false;
-	if (lp[max] < distance || lp[min] < distance)
-		return false;
-	for (int i = MIDDLE_LASER-width_degrees; 
-		i < MIDDLE_LASER+width_degrees; ++i)
-		if (lp[i] < distance)
-			return false;
-	return true;
-}
-
-
-// revise this!
-void Robot::adjust_node(
-	PlayerCc::LaserProxy& lp,
-	std::vector<Point2D>& path,
-	pIter2D& node,
-	double distance,
-	double angle)
-{
-	int degree = static_cast<int>(
-		std::round(angle*RAD_TO_DEG)+MIDDLE_LASER);
-	if (node+1 == path.end() || 
-		distance > THRESHOLD || 
-		degree < 0 || degree >= 180)
-		return;
-	int count = lp.GetCount();
-	int right = -1;
-	for (int i = 0; i < degree; ++i)
-		if (lp[i] < distance)
-			right = i;
-	int left = -1;
-	for (int i = count-1; i > degree; --i)
-		if (lp[i] < distance)
-			left = i;
+bool Robot::goal_behind(double angle) {
+	int degrees = static_cast<int>(std::fabs(angle)*RAD_TO_DEG);
+	int perpendicular = static_cast<int>(M_PI*3*RAD_TO_DEG/4);
+	return degrees >= perpendicular;
 }
 
 
@@ -818,7 +713,6 @@ std::vector<Point2D> Robot::parse_coordinates(
 }
 
 
-// pixel to coordinates
 Point2D Robot::pixel_to_coordinate(PointXY& node) {
 	return Point2D(
 		(MAP_X_COORDINATES/map_.width_pixel())*node.x_ -
@@ -828,7 +722,6 @@ Point2D Robot::pixel_to_coordinate(PointXY& node) {
 }
 
 
-// coordinates to pixels
 PointXY Robot::coordinate_to_pixel(Point2D& node) {
 	return PointXY(
 		static_cast<int>(std::round(map_.width_pixel()/2.0 +
@@ -888,7 +781,6 @@ int Robot::loop() {
 			robot.Read();
 			double velocity = 0.0, angle = 0.0;
 			this->go_to_waypoint(pp,velocity,angle);
-			// adjust node here?
 			this->avoid_obstacle(lp,velocity,angle);
 			this->traverse(pp,velocity,angle);
 			this->pilot(pp);
