@@ -515,7 +515,7 @@ private:
 		double magnitude, double radians);
 	
 	Vector2D perpendicular(
-		double magnitude, int degree);
+		double magnitude, double radians);
 	
 	std::vector<Point2D> parse_coordinates(
 		int num, char* points[]);
@@ -607,20 +607,21 @@ void Robot::avoid_obstacle(
 	double& distance,
 	double& angle)
 {
-	if (this->goal_behind(angle)) {
-		this->slow_approach(distance,angle,-1.0);
-	} else if (!this->unobstructed(lp,distance,angle)){
+	if (!this->unobstructed(lp,distance,angle)){
 		Vector2D tangential = Vector2D(0.0,0.0);
 		int count = lp.GetCount();
 		bool margin = true;
 		for (int i = 0; i < count && margin; ++i) {
 			double magnitude = lp[i];
+			double radians = (i-MIDDLE_LASER)*DEG_TO_RAD;
 			if (magnitude < MIN_THRESHOLD)
 				margin = false;
 			else if (magnitude < THRESHOLD)
-				tangential += this->perpendicular(magnitude,i);
+				tangential += this->perpendicular(magnitude,radians);
 		}
-		if (margin || distance < MIN_THRESHOLD)
+		if (this->goal_behind(angle))
+			this->slow_approach(distance,angle,-1.0);
+		else if (margin || distance < MIN_THRESHOLD)
 			this->tangent_field(tangential,distance,angle);
 		else
 			this->slow_approach(distance,angle,1.0);
@@ -687,13 +688,12 @@ Vector2D Robot::calculate_vector(
 }
 
 
-Vector2D Robot::perpendicular(double magnitude, int i) {
+Vector2D Robot::perpendicular(double magnitude, double radians) {
 	double weighted = (magnitude != 0.0) ? 
 		FACTOR * (THRESHOLD / magnitude) : 0.0;
-	double radian = (i-MIDDLE_LASER)*DEG_TO_RAD;
 	return Vector2D(
-		weighted*std::cos(radian),
-		-weighted*std::sin(radian));
+		weighted*std::cos(radians),
+		-weighted*std::sin(radians));
 }
 
 
